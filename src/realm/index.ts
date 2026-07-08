@@ -11,36 +11,24 @@ export async function init(): Promise<void> {
   await initEngine();
 
   // Patch Assets.getText (both openfl and lime) to handle null returns gracefully
+  // NOTE: must NOT return non-null for unknown IDs — palette loading ("full_colour") calls JSON.parse
   const g = globalThis as any;
   const patchGetText = (assetsObj: any) => {
     if (!assetsObj?.getText) return;
     const origGetText = assetsObj.getText.bind(assetsObj);
     assetsObj.getText = function(id: string) {
       try {
-        const result = origGetText(id);
-        if (result != null) return result;
+        return origGetText(id);
       } catch(_) {}
-      // Fallback for known text asset IDs
+      // Only return fallback for known text asset IDs (grammar, names)
+      // Other IDs (palettes, etc.) must return null to avoid JSON.parse errors
       if (id === 'grammar' || id === 'centrepiece') return '{}';
       if (['english', 'elven', 'demonic', 'male', 'female'].includes(id)) return '';
-      return '';
+      return null;
     };
   };
   patchGetText(g.RealmAssets);  // openfl.utils.Assets
-  patchGetText(g.RealmLimeAssets);  // lime.utils.Assets
-
-  // Force all libraries to treat assets as local (critical for headless mode)
-  const LimeAssets = g.RealmLimeAssets;
-  if (LimeAssets?.libraries) {
-    for (const key of Object.keys(LimeAssets.libraries.h || {})) {
-      const lib = LimeAssets.libraries.h[key];
-      if (lib && !lib.__patchedIsLocal) {
-        lib.__patchedIsLocal = true;
-        const origIsLocal = lib.isLocal;
-        lib.isLocal = function() { return true; };
-      }
-    }
-  }
+  // Note: do NOT patch RealmLimeAssets — double-wrapping breaks Scene creation
 
   initialized = true;
 }
@@ -68,14 +56,6 @@ export function createGenerator(): RealmGenerator {
       const URLState = g.URLState;
       if (URLState) URLState.baseURL = 'https://watabou.github.io/perilous-shores/';
 
-      // Fix State/SharedObject to prevent JSON parse errors in headless mode
-      // Pre-initialize ea (State) with empty shared object to avoid init failures
-      const StateClass = g.RealmState;
-      if (StateClass && !StateClass.so) {
-        StateClass.so = { data: {}, flush() {} };
-        StateClass.data = {};
-      }
-
       // Create Blueprint (constructor handles seed and Bc.resolve)
       // Reset tiltMode to 0 (flat mode, browser default) — Scene constructor normally does this
       const Region = g.RealmRegion;
@@ -89,32 +69,19 @@ export function createGenerator(): RealmGenerator {
       bp.hexes = 0;  // Ensure flat layout (matches browser default)
       const region = new Region(bp);
 
-      // Ensure scene inst exists for SVG export
+      // Create Scene for SVG export (must be created before Fe.export needs the view)
       const Scene = g.RealmMapScene;
-      if (Scene) {
-        if (!Scene.inst) {
-          try {
-            console.log('[Realm] Creating Scene...');
-            new Scene();
-            console.log('[Realm] Scene created, inst:', !!Scene.inst);
-          } catch (e: any) {
-            console.log('[Realm] Scene creation error:', e.message);
+      let view: any = null;
+      if (Scene && !Scene.inst) {
+        try {
+          new Scene();
+          if (Scene.inst?.view) {
+            Scene.inst.view.draw(region);
+            view = Scene.inst.view;
+            Scene.inst.region = region;
           }
-        } else {
-          console.log('[Realm] Scene already exists');
-        }
-        if (Scene.inst) {
-          Scene.inst.region = region;
-          if (Scene.inst.view) {
-            try {
-              Scene.inst.view.draw(region);
-              console.log('[Realm] View.draw() OK');
-            } catch (e: any) {
-              console.log('[Realm] View.draw() error:', e.message);
-            }
-          } else {
-            console.log('[Realm] No view on scene inst');
-          }
+        } catch (e: any) {
+          console.error('[Realm] Scene creation failed:', e.message);
         }
       }
 
@@ -154,24 +121,11 @@ export function createGenerator(): RealmGenerator {
         exportSvg(): Promise<string> {
           return new Promise((resolve, reject) => {
             const SvgExporter = g.RealmSvgExporter;
-            if (!SvgExporter?.export) {
+            const finalView = view || g.RealmMapScene?.inst?.view;
+            if (!SvgExporter?.export || !finalView) {
               resolve('<svg></svg>');
               return;
             }
-
-            // Get view from scene or create minimal view
-            const view = g.RealmMapScene?.inst?.view;
-            if (!view) {
-              // Try to create scene first
-              const Scene = g.RealmMapScene;
-              if (Scene) {
-                try { new Scene(); } catch (_) {}
-                if (Scene.inst) {
-                  Scene.inst.region = region;
-                }
-              }
-            }
-            const finalView = g.RealmMapScene?.inst?.view;
 
             g.__captureCb = (data: string) => {
               resolve(data);
