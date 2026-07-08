@@ -3,6 +3,7 @@
  */
 import { createEngine, GeneratorConfig, GeneratorRuntime } from '../shared/engine-base';
 import * as path from 'path';
+import * as fs from 'fs';
 
 const PACKAGES_DIR = path.resolve(__dirname, '..', '..', 'packages', 'realm');
 
@@ -20,6 +21,26 @@ const CONFIG: GeneratorConfig = {
   mainCallPattern: 'S.main()',
   baseUrl: 'https://watabou.github.io/perilous-shores/',
   patchSource: (src: string): string => {
+    // Inline text assets (grammar, names) — these are normally loaded via XHR
+    const assetsDir = path.join(PACKAGES_DIR, 'assets');
+    const assets: Record<string, string> = {
+      'grammar': 'grammar.json',
+      'centrepiece': 'centrepiece.json',
+      'english': 'english.txt',
+      'elven': 'elven.txt',
+      'demonic': 'demonic.txt',
+      'male': 'given_male.txt',
+      'female': 'given_female.txt',
+    };
+    for (const [id, filename] of Object.entries(assets)) {
+      const fpath = path.join(assetsDir, filename);
+      if (fs.existsSync(fpath)) {
+        const content = fs.readFileSync(fpath, 'utf-8');
+        // Replace Jb.getText("id") with the literal content
+        src = src.replace(`Jb.getText("${id}")`, JSON.stringify(content));
+      }
+    }
+
     // Expose classes using minified names before S.main()
     // m=Random, nb=URLState, Ce=Exporter (SystemExporter), Qd=Blueprint, ba=Region, 
     // gb=MapScene, ug=Serializer, Fe=SvgExporter, Jb=Assets, Na=lime.utils.Assets

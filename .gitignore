@@ -3,3 +3,5 @@ output/
 *.tsbuildinfo
 nul
 run-realm.ts
+.pigenerated/
+.pi/
