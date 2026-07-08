@@ -28,7 +28,22 @@ export async function init(): Promise<void> {
     };
   };
   patchGetText(g.RealmAssets);  // openfl.utils.Assets
-  // Note: do NOT patch RealmLimeAssets — double-wrapping breaks Scene creation
+
+  // Pre-populate palette JSONs into the asset cache
+  // These are normally loaded via XHR; in headless mode we inject them directly
+  const paletteIds = ['default', 'bw', 'antique', 'soft', 'cartoon', 'october', 'full_colour'];
+  const LimeAssets = g.RealmLimeAssets;
+  const lib = LimeAssets?.libraries?.h?.['default'];
+  if (lib?.cachedText) {
+    const fs = require('fs');
+    const path = require('path');
+    for (const id of paletteIds) {
+      const fpath = path.join(__dirname, '..', '..', 'packages', 'realm', 'assets', id + '.json');
+      if (fs.existsSync(fpath)) {
+        lib.cachedText.h[id] = fs.readFileSync(fpath, 'utf-8');
+      }
+    }
+  }
 
   initialized = true;
 }
