@@ -1,0 +1,1 @@
+https://watabou.github.io/city-generator/?size=27&seed=800047775&citadel=1&urban_castle=1&plaza=1&temple=1&walls=0&shantytown=1&coast=1&river=1&greens=0&gates=-1&sea=1.1

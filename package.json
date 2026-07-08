@@ -1,0 +1,34 @@
+{
+  "name": "watabou-generators",
+  "version": "1.0.0",
+  "description": "TypeScript Node.js monorepo wrapping 6 Watabou procedural generators (Perilous Shores, City/MFCG, Village, Cave, One Page Dungeon, Dwellings) to run headless in Node.js",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "demo": "tsx src/demo.ts",
+    "demo:realm": "tsx src/realm/index.ts",
+    "demo:city": "tsx src/city/index.ts",
+    "demo:village": "tsx src/village/index.ts",
+    "demo:cave": "tsx src/cave/index.ts",
+    "demo:dungeon": "tsx src/dungeon/index.ts",
+    "demo:dwelling": "tsx src/dwelling/index.ts"
+  },
+  "keywords": [
+    "procedural-generation",
+    "fantasy-map",
+    "watabou",
+    "node-canvas",
+    "openfl",
+    "haxe"
+  ],
+  "license": "ISC",
+  "dependencies": {
+    "@types/node": "^26.1.0",
+    "canvas": "^3.2.3"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3",
+    "tsx": "^4.23.0"
+  }
+}
