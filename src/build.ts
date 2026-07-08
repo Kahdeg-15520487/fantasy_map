@@ -13,7 +13,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { execSync } from 'child_process';
+import * as esbuild from 'esbuild';
 import { init as initRealm, createGenerator as createRealmGen } from './realm';
 import { init as initCity, createGenerator as createCityGen } from './city';
 import { init as initVillage, createGenerator as createVillageGen } from './village';
@@ -182,22 +182,18 @@ async function main() {
 
   // Step 4: Compile frontend TypeScript → JS
   console.log('[4/5] Compiling frontend...');
-  ensureDir(BUILD_DIR);
-
-  // Bundle with esbuild (IIFE format for browser)
   const entryPoint = path.join(FRONTEND_DIR, 'app.ts');
   const outFile = path.join(OUT_DIR, 'app.js');
 
-  try {
-    execSync(
-      `npx esbuild "${entryPoint}" --bundle --format=iife --global-name=WorldMap --outfile="${outFile}" --target=es2020`,
-      { stdio: 'pipe', cwd: path.resolve(__dirname, '..') }
-    );
-    console.log(`  Compiled to ${outFile}`);
-  } catch (e: any) {
-    console.error('  Esbuild failed:', e.stderr?.toString() || e.message);
-    // Fallback: copy ts files as-is (won't work but documents the intent)
-  }
+  await esbuild.build({
+    entryPoints: [entryPoint],
+    bundle: true,
+    format: 'iife',
+    globalName: 'WorldMap',
+    outfile: outFile,
+    target: 'es2020',
+  });
+  console.log(`  Compiled to ${outFile}`);
   console.log();
 
   // Step 5: Copy static assets
@@ -211,6 +207,7 @@ async function main() {
   console.log(`Output: ${OUT_DIR}`);
   console.log(`Files: realm.svg, realm.json, towns.json, app.js, index.html, style.css`);
   console.log(`  + ${generated} town GeoJSON files`);
+  process.exit(0);
 }
 
 main().catch(e => {

@@ -48,6 +48,13 @@ export function createGenerator(): CityGenerator {
         try { new ia(); } catch (_) {}
       }
 
+      // Set up Scene and View for export rendering
+      // (same pattern as Realm)
+      const Scene = g.ia;
+      if (Scene && !Scene.inst) {
+        try { new Scene(); } catch (_) {}
+      }
+
       return {
         name: city.name || 'Unnamed City',
         seed,
@@ -56,22 +63,28 @@ export function createGenerator(): CityGenerator {
 
         exportJson(): Promise<string> {
           return new Promise((resolve) => {
-            g.__captureCb = (data: string) => resolve(data);
+            const cid = g.__nextCaptureId();
+            g.__captureCbs[cid] = (data: string) => { resolve(data); delete g.__captureCbs[cid]; };
             setTimeout(() => be.asJSON(), 50);
+            setTimeout(() => { if (g.__captureCbs[cid]) { delete g.__captureCbs[cid]; resolve('{}'); } }, 2000);
           });
         },
 
         exportSvg(): Promise<string> {
           return new Promise((resolve) => {
-            g.__captureCb = (data: string) => resolve(data);
+            const cid = g.__nextCaptureId();
+            g.__captureCbs[cid] = (data: string) => { resolve(data); delete g.__captureCbs[cid]; };
             setTimeout(() => be.asSVG(), 50);
+            setTimeout(() => { if (g.__captureCbs[cid]) { delete g.__captureCbs[cid]; resolve('<svg></svg>'); } }, 2000);
           });
         },
 
         exportPng(): Promise<Buffer> {
           return new Promise((resolve) => {
-            g.__captureCb = (data: string) => resolve(Buffer.from(data, 'base64'));
+            const cid = g.__nextCaptureId();
+            g.__captureCbs[cid] = (data: string) => { resolve(Buffer.from(data, 'base64')); delete g.__captureCbs[cid]; };
             setTimeout(() => be.asPNG(), 50);
+            setTimeout(() => { if (g.__captureCbs[cid]) { delete g.__captureCbs[cid]; resolve(Buffer.alloc(0)); } }, 2000);
           });
         },
       };

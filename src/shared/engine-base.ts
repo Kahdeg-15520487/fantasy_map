@@ -312,25 +312,30 @@ export async function createEngine(config: GeneratorConfig): Promise<GeneratorRu
   patchGetText(g.lime?.utils?.Assets);
   patchGetText(g.openfl?.utils?.Assets);
 
-  // Set up Blob interception for export capture
-  g.__captureCb = null;
+  // Set up Blob interception for export capture (per-ID to prevent races)
+  let _captureId = 0;
+  g.__captureCbs = {};
+  g.__nextCaptureId = () => ++_captureId;
   const OrigBlob = g.Blob;
   g.Blob = class extends OrigBlob {
     constructor(parts?: any[], opts?: any) {
       super(parts, opts);
-      if (parts && parts.length > 0 && opts?.type && g.__captureCb) {
+      if (parts && parts.length > 0 && opts?.type) {
         const mime = opts.type as string;
         if (mime === 'image/svg+xml' || mime === 'application/json' || mime === 'image/png') {
           const data = typeof parts[0] === 'string' ? parts[0] : '';
-          g.__captureCb(data);
-          g.__captureCb = null;
+          const cbs = g.__captureCbs;
+          for (const id of Object.keys(cbs)) {
+            cbs[id](data);
+            delete cbs[id];
+          }
         }
       }
     }
   };
   g.saveAs = () => {};
 
-  const captureExport = (cb: (data: string) => void) => { g.__captureCb = cb; };
+  const captureExport = (cb: (data: string) => void) => { const cid = g.__nextCaptureId(); g.__captureCbs[cid] = cb; return cid; };
 
   // Build runtime interface
   const classes: Record<string, any> = {};

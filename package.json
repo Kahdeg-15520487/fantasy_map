@@ -6,13 +6,15 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
+    "generate": "tsx src/build.ts",
     "demo": "tsx src/demo.ts",
     "demo:realm": "tsx src/realm/index.ts",
     "demo:city": "tsx src/city/index.ts",
     "demo:village": "tsx src/village/index.ts",
     "demo:cave": "tsx src/cave/index.ts",
     "demo:dungeon": "tsx src/dungeon/index.ts",
-    "demo:dwelling": "tsx src/dwelling/index.ts"
+    "demo:dwelling": "tsx src/dwelling/index.ts",
+    "test:integration": "tsx src/integration_test.ts"
   },
   "keywords": [
     "procedural-generation",
@@ -29,6 +31,7 @@
   },
   "devDependencies": {
     "@types/d3": "^7.4.3",
+    "esbuild": "^0.28.1",
     "tsx": "^4.23.0",
     "typescript": "^6.0.3"
   }

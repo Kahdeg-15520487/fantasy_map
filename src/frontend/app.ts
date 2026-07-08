@@ -4,7 +4,7 @@
  * Displays a realm SVG backdrop with clickable town/village markers.
  * Clicking a town zooms in and opens the city/village GeoJSON detail view.
  */
-import * as d3 from 'd3';
+
 import { render, reset } from './renderer';
 import { Theme } from './types';
 

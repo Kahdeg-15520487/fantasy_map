@@ -70,8 +70,10 @@ export function createGenerator(): VillageGenerator {
           return new Promise((resolve) => {
             const JSONExporter = g.VillageJSONExporter;
             if (JSONExporter?.export) {
-              g.__captureCb = (data: string) => resolve(data);
+              const cid = g.__nextCaptureId();
+              g.__captureCbs[cid] = (data: string) => { resolve(data); delete g.__captureCbs[cid]; };
               setTimeout(() => JSONExporter.export(village), 100);
+              setTimeout(() => { if (g.__captureCbs[cid]) { delete g.__captureCbs[cid]; resolve('{}'); } }, 2000);
             } else {
               resolve('{}');
             }
@@ -82,8 +84,10 @@ export function createGenerator(): VillageGenerator {
           return new Promise((resolve) => {
             const view = g.VillageScene?.inst?.view;
             if (view?.exportSVG) {
-              g.__captureCb = (data: string) => resolve(data);
+              const cid = g.__nextCaptureId();
+              g.__captureCbs[cid] = (data: string) => { resolve(data); delete g.__captureCbs[cid]; };
               setTimeout(() => view.exportSVG(), 100);
+              setTimeout(() => { if (g.__captureCbs[cid]) { delete g.__captureCbs[cid]; resolve('<svg></svg>'); } }, 2000);
             } else {
               resolve('<svg></svg>');
             }
@@ -94,8 +98,10 @@ export function createGenerator(): VillageGenerator {
           return new Promise((resolve) => {
             const view = g.VillageScene?.inst?.view;
             if (view?.exportPNG) {
-              g.__captureCb = (data: string) => resolve(Buffer.from(data, 'base64'));
+              const cid = g.__nextCaptureId();
+              g.__captureCbs[cid] = (data: string) => { resolve(Buffer.from(data, 'base64')); delete g.__captureCbs[cid]; };
               setTimeout(() => view.exportPNG(), 100);
+              setTimeout(() => { if (g.__captureCbs[cid]) { delete g.__captureCbs[cid]; resolve(Buffer.alloc(0)); } }, 2000);
             } else {
               resolve(Buffer.alloc(0));
             }

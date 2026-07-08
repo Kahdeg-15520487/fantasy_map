@@ -114,19 +114,19 @@ export function createGenerator(): RealmGenerator {
               resolve('{}');
               return;
             }
-            g.__captureCb = (data: string) => {
+            const cid = g.__nextCaptureId();
+            g.__captureCbs[cid] = (data: string) => {
               resolve(data);
-              g.__captureCb = null;
+              delete g.__captureCbs[cid];
             };
             try {
               Serializer.saveAsJSON(region);
             } catch (e: any) {
               resolve('{}');
             }
-            // Fallback: if no capture after 1s, resolve empty
             setTimeout(() => {
-              if (g.__captureCb) {
-                g.__captureCb = null;
+              if (g.__captureCbs[cid]) {
+                delete g.__captureCbs[cid];
                 resolve('{}');
               }
             }, 1000);
@@ -142,9 +142,10 @@ export function createGenerator(): RealmGenerator {
               return;
             }
 
-            g.__captureCb = (data: string) => {
+            const cid = g.__nextCaptureId();
+            g.__captureCbs[cid] = (data: string) => {
               resolve(data);
-              g.__captureCb = null;
+              delete g.__captureCbs[cid];
             };
             try {
               if (finalView) {
@@ -156,10 +157,9 @@ export function createGenerator(): RealmGenerator {
               console.error('SVG export error:', e.message);
               resolve('<svg></svg>');
             }
-            // Fallback
             setTimeout(() => {
-              if (g.__captureCb) {
-                g.__captureCb = null;
+              if (g.__captureCbs[cid]) {
+                delete g.__captureCbs[cid];
                 resolve('<svg></svg>');
               }
             }, 5000);
@@ -168,12 +168,12 @@ export function createGenerator(): RealmGenerator {
 
         exportPng(): Promise<Buffer> {
           return new Promise((resolve, reject) => {
-            // PNG export is complex — try scene-based approach
             const view = g.RealmMapScene?.inst?.view;
             if (view?.exportPNG) {
-              g.__captureCb = (data: string) => {
+              const cid = g.__nextCaptureId();
+              g.__captureCbs[cid] = (data: string) => {
                 resolve(Buffer.from(data, 'base64'));
-                g.__captureCb = null;
+                delete g.__captureCbs[cid];
               };
               try {
                 view.exportPNG();
@@ -184,8 +184,8 @@ export function createGenerator(): RealmGenerator {
               resolve(Buffer.alloc(0));
             }
             setTimeout(() => {
-              if (g.__captureCb) {
-                g.__captureCb = null;
+              if (g.__captureCbs[cid]) {
+                delete g.__captureCbs[cid];
                 resolve(Buffer.alloc(0));
               }
             }, 5000);

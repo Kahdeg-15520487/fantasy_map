@@ -2,7 +2,7 @@
  * FicGeoRen engine — TypeScript port.
  * Renders GeoJSON feature collections with D3.js v7.
  */
-import * as d3 from 'd3';
+
 import { GeoCollection, GeoFeature, LayerDef, RenderOptions, Theme } from './types';
 
 // ── Coordinate extraction ──────────────────────────────────────
