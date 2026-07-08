@@ -15,7 +15,7 @@ const CONFIG: GeneratorConfig = {
     ['ShareTechMono-regular.ttf', 'Share Tech Mono'],
   ],
   fontsDir: path.join(PACKAGES_DIR, 'fonts'),
-  classExports: ['C', 'Aa', 'ba'],
+  classExports: [],
   mainCallPattern: 'ka.main()',
   baseUrl: 'https://watabou.github.io/dwellings/',
 };

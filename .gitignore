@@ -1,5 +1,6 @@
 node_modules/
 output/
+build/
 *.tsbuildinfo
 nul
 run-realm.ts

@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fantasy World Map</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <button id="btn-back" title="Back to realm" style="display:none">← Back</button>
+  <h1 id="map-title">🗺️ Fantasy World</h1>
+  <div class="controls" id="layer-toggles"></div>
+  <button id="btn-regen" title="Regenerate world">🔄 New Map</button>
+</header>
+
+<div id="map-container">
+  <svg id="map"></svg>
+  <div id="legend"></div>
+  <div id="tooltip"></div>
+  <div id="loading" class="hidden">Loading…</div>
+</div>
+
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script src="app.js"></script>
+<script>
+  // Bootstrap
+  (async function() {
+    try {
+      const themeResp = await fetch('realm_theme.json');
+      const theme = await themeResp.json();
+      await WorldMap.initWorldMap({
+        realmSvgUrl: 'realm.svg',
+        realmTheme: theme,
+        townsDataUrl: 'towns.json',
+      });
+    } catch (err) {
+      console.error('Failed to bootstrap:', err);
+    }
+  })();
+</script>
+
+</body>
+</html>

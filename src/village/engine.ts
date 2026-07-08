@@ -15,7 +15,7 @@ const CONFIG: GeneratorConfig = {
     ['Cinzel-Bold.ttf', 'Cinzel Bold'],
   ],
   fontsDir: path.join(PACKAGES_DIR, 'fonts'),
-  classExports: ['C', 'Aa', 'ba', 'Rd'],
+  classExports: [],
   mainCallPattern: 'S.main()',
   baseUrl: 'https://watabou.github.io/village-generator/',
   patchSource: (src: string): string => {

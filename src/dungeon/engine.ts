@@ -18,7 +18,7 @@ const CONFIG: GeneratorConfig = {
     ['Neuton-ExtraBold.ttf', 'Neuton ExtraBold'],
   ],
   fontsDir: path.join(PACKAGES_DIR, 'fonts'),
-  classExports: ['C', 'Aa', 'ba'],
+  classExports: [],
   mainCallPattern: 'K.main()',
   baseUrl: 'https://watabou.github.io/one-page-dungeon/',
 };

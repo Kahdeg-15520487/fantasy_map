@@ -28,7 +28,8 @@
     "canvas": "^3.2.3"
   },
   "devDependencies": {
-    "typescript": "^6.0.3",
-    "tsx": "^4.23.0"
+    "@types/d3": "^7.4.3",
+    "tsx": "^4.23.0",
+    "typescript": "^6.0.3"
   }
 }

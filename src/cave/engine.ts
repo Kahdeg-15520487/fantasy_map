@@ -15,7 +15,7 @@ const CONFIG: GeneratorConfig = {
     ['Marcellus-Regular.ttf', 'Marcellus'],
   ],
   fontsDir: path.join(PACKAGES_DIR, 'fonts'),
-  classExports: ['C', 'Aa', 'ba'],
+  classExports: [],
   mainCallPattern: 'J.main()',
   baseUrl: 'https://watabou.github.io/cave-generator/',
 };
