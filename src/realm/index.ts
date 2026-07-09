@@ -106,6 +106,7 @@ export function createGenerator(): RealmGenerator {
         width: bp.width,
         height: bp.height,
         options: { ...options, seed },
+        region,
 
         exportJson(): Promise<string> {
           return new Promise((resolve, reject) => {

@@ -1,13 +1,9 @@
 /**
  * GeoJSON rendering engine — Vue composable.
- * Ported from the vanilla TS renderer, now reactive.
  */
 import { ref, onUnmounted, type Ref } from 'vue'
+import * as d3 from 'd3'
 import type { GeoCollection, GeoFeature, GeoGeometry, GeoGeometryCollection, LayerDef, Theme, Ring, Polygon, Coord } from '../types'
-
-// ── d3 global (loaded via CDN) ─────────────────────────────────
-
-declare const d3: any
 
 // ── Coordinate helpers ──────────────────────────────────────────
 

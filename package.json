@@ -15,7 +15,9 @@
     "demo:cave": "tsx src/cave/index.ts",
     "demo:dungeon": "tsx src/dungeon/index.ts",
     "demo:dwelling": "tsx src/dwelling/index.ts",
-    "generate": "tsx scripts/generate-frontend.ts"
+    "generate": "tsx scripts/generate-all.ts",
+    "generate:realm": "tsx scripts/generate-realm.ts",
+    "generate:town": "tsx scripts/generate-town.ts"
   },
   "keywords": [
     "procedural-generation",

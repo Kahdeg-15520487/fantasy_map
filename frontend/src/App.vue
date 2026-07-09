@@ -38,9 +38,14 @@ onMounted(async () => {
     towns.value = await townsResp.json()
 
     const svgResp = await fetch('/realm.svg')
-    let svgText = await svgResp.text()
-    const match = svgText.match(/<svg[^>]*>([\s\S]*)<\/svg>/)
-    if (match) svgText = match[1]
+    const svgText = await svgResp.text()
+    // Keep the full document (including the root <svg> tag) rather than just its
+    // inner content: the Watabou exporter relies on root-level presentation
+    // attributes (fill="none", fill-rule="evenodd", stroke-linejoin/linecap) that
+    // shapes inherit when they don't set their own. RealmView re-parses this and
+    // copies those attributes onto the group it injects, so dropping the root tag
+    // here would make every unfilled shape fall back to the SVG spec default
+    // (solid black fill).
     realmSvg.value = sanitizeSvg(svgText)
   } catch (err) {
     console.error(err)

@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, nextTick } from 'vue'
+import * as d3 from 'd3'
 import type { TownMarker } from '../types'
-
-declare const d3: any
 
 const props = defineProps<{
   svg: string
@@ -17,12 +16,29 @@ const containerRef = ref<HTMLDivElement | null>(null)
 const svgRef = ref<SVGSVGElement | null>(null)
 const tooltipRef = ref<HTMLDivElement | null>(null)
 
-function markerColor(type: string) {
-  return type === 'city' ? '#e74c3c' : type === 'town' ? '#f39c12' : '#3498db'
+function markerHitRadius(type: string) {
+  return type === 'city' ? 40 : type === 'town' ? 20 : 10
 }
 
-function markerRadius(type: string) {
-  return type === 'city' ? 6 : type === 'town' ? 4.5 : 3.5
+// The map's fit-to-viewport transform uniformly scales down the whole realm-bg
+// group (often to ~0.3-0.5x for an 1800-unit canvas), which shrank marker radii
+// (specified in the same map-local units) down to just 1-3 screen px. Markers
+// are kept in map-local coordinates (so they stay correctly positioned as the
+// map is resized) but wrapped in their own <g transform="translate(x,y)
+// scale(1/mapScale)">, which cancels out the ambient scale for that subtree so
+// the circle inside renders at a constant, always-visible screen-space size.
+let currentMapScale = 1
+function updateMarkerScale() {
+  const svgEl = svgRef.value
+  if (!svgEl) return
+  d3.select(svgEl)
+    .selectAll<SVGGElement, unknown>('.town-marker-anchor')
+    .attr('transform', function () {
+      const el = this as SVGGElement
+      const x = parseFloat(el.dataset.x || '0')
+      const y = parseFloat(el.dataset.y || '0')
+      return `translate(${x},${y}) scale(${1 / currentMapScale})`
+    })
 }
 
 function fitToViewport() {
@@ -41,6 +57,9 @@ function fitToViewport() {
   const tx = (w - bbox.width * scale) / 2 - bbox.x * scale
   const ty = (h - bbox.height * scale) / 2 - bbox.y * scale
   g.attr('transform', `translate(${tx},${ty}) scale(${scale})`)
+
+  currentMapScale = scale
+  updateMarkerScale()
 }
 
 function handleMarkerMouseEnter(town: TownMarker) {
@@ -81,34 +100,59 @@ watch(() => props.svg, async () => {
   const svgEl = svgRef.value
   if (!svgEl || !props.svg) return
 
-  // Inject sanitized SVG via DOMParser for correct namespace
+  // Parse the full sanitized document (root <svg> included) so we can carry over
+  // its presentation attributes.
   const parser = new DOMParser()
-  const doc = parser.parseFromString(`<svg xmlns="http://www.w3.org/2000/svg">${props.svg}</svg>`, 'image/svg+xml')
+  const doc = parser.parseFromString(props.svg, 'image/svg+xml')
   const parsed = doc.querySelector('svg')
-  if (!parsed) return
+  if (!parsed || doc.querySelector('parsererror')) return
 
   // Import and reparent
   const imported = document.importNode(parsed, true)
   const g = d3.select(svgEl).append('g').attr('class', 'realm-bg')
   const gNode = g.node()
+  if (!gNode) return
+
+  // The Watabou exporter sets default presentation attributes on the root <svg>
+  // (fill="none", fill-rule="evenodd", stroke-linejoin/linecap="round") that
+  // shapes inherit when they don't specify their own. Carry them over onto the
+  // group so unfilled shapes don't fall back to the SVG spec default (solid
+  // black fill) once reparented under our own <svg> element.
+  for (const attr of ['fill', 'fill-rule', 'stroke-linejoin', 'stroke-linecap']) {
+    const value = imported.getAttribute(attr)
+    if (value) gNode.setAttribute(attr, value)
+  }
+
   while (imported.firstChild) {
     gNode.appendChild(imported.firstChild)
   }
 
-  // Add town markers
+  // Add town markers. Each marker is a <g class="town-marker-anchor"> holding
+  // the map-local (x,y) in data attributes; updateMarkerScale() sets its
+  // transform (translate + counter-scale) so the circle inside stays a
+  // constant screen size regardless of map zoom (see fitToViewport/
+  // updateMarkerScale above).
+  //
+  // Each anchor holds a single invisible "hit" circle that owns all
+  // pointer/keyboard interaction — sized to cover the town's icon glyph on
+  // the SVG so hovering/clicking the icon works without a visible dot marker.
   for (const town of props.towns) {
-    g.append('circle')
-      .attr('cx', town.x)
-      .attr('cy', -town.y)
-      .attr('r', markerRadius(town.type))
-      .attr('fill', markerColor(town.type))
-      .attr('stroke', '#fff')
-      .attr('stroke-width', 1.5)
-      .attr('class', 'town-marker')
+    const anchor = g.append('g')
+      .attr('class', 'town-marker-anchor')
+      .attr('data-x', String(town.x))
+      .attr('data-y', String(-town.y))
+
+    anchor.append('circle')
+      .attr('cx', 0)
+      .attr('cy', 0)
+      .attr('r', markerHitRadius(town.type))
+      .attr('fill', 'transparent')
+      .attr('class', 'town-marker-hit')
       .attr('role', 'button')
       .attr('tabindex', '0')
       .attr('aria-label', `${town.name} (${town.type})`)
       .style('cursor', 'pointer')
+      .style('pointer-events', 'all')
       .on('mouseenter', () => handleMarkerMouseEnter(town))
       .on('mousemove', (ev: MouseEvent) => handleMarkerMouseMove(ev))
       .on('mouseleave', handleMarkerMouseLeave)
@@ -153,13 +197,10 @@ watch(() => props.svg, async () => {
   white-space: nowrap;
   z-index: 100;
 }
-.town-marker {
-  transition: transform 0.2s, filter 0.2s;
-}
-.town-marker:hover {
-  filter: brightness(1.5);
+.town-marker-hit {
+  transition: filter 0.2s;
 }
 @media (prefers-reduced-motion: reduce) {
-  .town-marker { transition: none; }
+  .town-marker-hit { transition: none; }
 }
 </style>

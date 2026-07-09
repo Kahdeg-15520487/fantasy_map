@@ -16,6 +16,14 @@ export interface GeneratedRealm {
   width: number;
   height: number;
   options: RealmOptions;
+  /**
+   * The live Haxe `Region` model instance (com.watabou.perilous.model.Region).
+   * Exposed so callers can read precise pixel geometry directly (e.g.
+   * `region.islands[i].towns[j].cell.center` + `.getOffset()`) instead of
+   * reverse-engineering positions from the exported SVG/JSON, which only
+   * approximates icon placement via label text coordinates.
+   */
+  region: any;
   exportJson(): Promise<string>;
   exportSvg(): Promise<string>;
   exportPng(): Promise<Buffer>;
