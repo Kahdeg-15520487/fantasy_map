@@ -86,6 +86,7 @@ async function main() {
       const gen = createGenerator()
       result = await gen.generate({
         seed: currentSeed,
+        name,
         ...(sizeStr ? { size: parseInt(sizeStr, 10) } : {}),
         ...(tags ? { tags } : {}),
       })

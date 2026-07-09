@@ -67,15 +67,19 @@ export function createGenerator(): VillageGenerator {
 
       const Blueprint = g.VillageBlueprint;
       if (!Blueprint) throw new Error('VillageBlueprint not available');
-      
-      // Use Blueprint.fromURL() for proper tag parsing
+
+      // Use Blueprint.fromURL() for proper tag + name parsing. The real
+      // realm->village link is ?seed=X&name=Green%20Crossing&tags=river&from=perilous
+      // — the `name` param forces the village to use the realm's assigned name
+      // instead of generating its own from the grammar (which would mismatch the
+      // realm map's town label).
       let bp: any;
-      if (options.tags && Blueprint.fromURL) {
-        // Simulate URL parameters
-        const tagStr = options.tags;
-        // Temporarily set location.search to pass tags
+      if ((options.tags || options.name) && Blueprint.fromURL) {
+        const params: string[] = ['seed=' + seed];
+        if (options.name) params.push('name=' + encodeURIComponent(options.name));
+        if (options.tags) params.push('tags=' + encodeURIComponent(options.tags));
         const oldSearch = g.location.search;
-        g.location.search = '?seed=' + seed + '&tags=' + encodeURIComponent(tagStr);
+        g.location.search = '?' + params.join('&');
         try {
           bp = Blueprint.fromURL();
           if (!bp) bp = Blueprint.random();
@@ -87,10 +91,23 @@ export function createGenerator(): VillageGenerator {
         bp.seed = seed;
       }
 
+      // Force the assigned name onto the blueprint so the rendered SVG title
+      // matches the realm's town label even if fromURL didn't apply it.
+      if (options.name) bp.name = options.name;
+
       // Create village model directly
       const Region = g.VillageRegion;
       if (!Region) throw new Error('VillageRegion not available');
       const village = new Region(bp);
+
+      // The Region constructor generates its own name from the grammar. Override
+      // it with the realm's assigned name so the SVG title matches the map label.
+      if (options.name) {
+        try {
+          village.name = options.name;
+          if (village.legend) village.legend.name = options.name;
+        } catch (_) {}
+      }
 
       // Build a real VillageView so SVG export has geometry to serialize.
       // Without this, Scene.inst.view is undefined and exportSvg() returns an

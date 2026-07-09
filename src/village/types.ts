@@ -4,6 +4,7 @@
 export interface VillageOptions {
   seed?: number;
   tags?: string;
+  name?: string;
 }
 
 export interface GeneratedVillage {

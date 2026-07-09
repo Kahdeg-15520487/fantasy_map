@@ -24,7 +24,12 @@ function fitToViewport() {
   if (!svgEl || !containerEl) return
 
   const g = d3.select(svgEl).select<SVGGElement>('.detail-bg')
-  const bbox = g.node()?.getBBox()
+  
+  // Find the background rect element to use as the true map bounds. Using the entire
+  // group's bbox includes roads and rivers extending far beyond the visible map bounds.
+  const rectNode = g.select('rect').node()
+  const bbox = rectNode ? rectNode.getBBox() : g.node()?.getBBox()
+  
   if (!bbox || bbox.width <= 0 || bbox.height <= 0) return
 
   const w = containerEl.clientWidth
@@ -43,29 +48,35 @@ onMounted(async () => {
     if (!resp.ok) throw new Error(`Failed to load SVG: ${resp.status}`)
 
     const svgText = await resp.text()
-    // Extract inner content from the SVG (strip <?xml>, keep <svg> inner)
-    const match = svgText.match(/<svg[^>]*>([\s\S]*)<\/svg>/)
-    const inner = match ? match[1] : svgText
 
     loading.value = false
     await nextTick()
 
     const svgEl = svgRef.value
-    if (!svgEl || !inner) return
+    if (!svgEl) return
 
     const parser = new DOMParser()
-    const doc = parser.parseFromString(
-      `<svg xmlns="http://www.w3.org/2000/svg">${inner}</svg>`,
-      'image/svg+xml'
-    )
+    const doc = parser.parseFromString(svgText, 'image/svg+xml')
     const parsed = doc.querySelector('svg')
-    if (!parsed) return
+    if (!parsed || doc.querySelector('parsererror')) return
 
     const imported = document.importNode(parsed, true)
     const g = d3.select(svgEl).append('g').attr('class', 'detail-bg')
     const gNode = g.node()
+    if (!gNode) return
+
+    // The Watabou exporter sets default presentation attributes on the root <svg>
+    // (fill="none", fill-rule="evenodd", stroke-linejoin/linecap="round") that
+    // shapes inherit when they don't specify their own. Carry them over onto the
+    // group so unfilled shapes don't fall back to the SVG spec default (solid
+    // black fill) once reparented under our own <svg> element.
+    for (const attr of ['fill', 'fill-rule', 'stroke-linejoin', 'stroke-linecap']) {
+      const value = imported.getAttribute(attr)
+      if (value) gNode.setAttribute(attr, value)
+    }
+
     while (imported.firstChild) {
-      gNode!.appendChild(imported.firstChild)
+      gNode.appendChild(imported.firstChild)
     }
 
     fitToViewport()
