@@ -48,12 +48,19 @@ export function createGenerator(): CityGenerator {
         try { new ia(); } catch (_) {}
       }
 
-      // Set up Scene and View for export rendering
-      // (same pattern as Realm)
-      const Scene = g.ia;
-      if (Scene && !Scene.inst) {
-        try { new Scene(); } catch (_) {}
-      }
+      // Give the scene a valid viewport size. In headless mode the OpenFL stage is
+      // created 0x0 (engine-base calls lime.embed(..., 0, 0, ...)), so the scene's
+      // rWidth/rHeight are 0. That makes scene.get_mapScale() return 0, and the SVG
+      // exporter (Rd.export) then sizes everything to 0 -> child layout divides by
+      // zero -> NaN transforms (e.g. `translate(NaN -40)`, scale-bar `M NaN,0`).
+      // Sized at 2048x2048 (doubled from the original 1024x1024) so the exported
+      // SVG/PNG render at twice the linear resolution/dimensions.
+      try {
+        const scene: any = ia.inst;
+        if (scene && typeof scene.setSize === 'function') {
+          scene.setSize(2048, 2048);
+        }
+      } catch (_) {}
 
       return {
         name: city.name || 'Unnamed City',

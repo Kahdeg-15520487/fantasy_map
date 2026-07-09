@@ -1,9 +1,85 @@
 /**
  * FicGeoRen — TypeScript port of the fictional map GeoJSON renderer.
- * 
+ *
  * Renders GeoJSON feature collections with a configurable theme.
  * Depends on D3.js v7 (loaded via CDN in the HTML shell).
  */
+
+// ── GeoJSON primitives (loose FicGeoRen dialect) ────────────────
+
+/** Coordinate pair [x, y]. */
+export type Coord = [number, number];
+
+/** Ring = closed array of coordinate pairs. */
+export type Ring = Coord[];
+
+/** Polygon = array of rings (outer + holes). */
+export type Polygon = Ring[];
+
+/** MultiPolygon = array of polygons. */
+export type MultiPolygon = Polygon[];
+
+/** Point = a single coordinate pair. */
+export type Point = Coord;
+
+/** MultiPoint = array of coordinate pairs. */
+export type MultiPoint = Point[];
+
+/** LineString = array of coordinate pairs. */
+export type LineString = Coord[];
+
+export type GeometryType =
+  | 'Polygon'
+  | 'MultiPolygon'
+  | 'Point'
+  | 'MultiPoint'
+  | 'LineString'
+  | 'GeometryCollection';
+
+export type GeoGeometry =
+  | { type: 'Polygon'; coordinates: Polygon; name?: string }
+  | { type: 'MultiPolygon'; coordinates: MultiPolygon; name?: string }
+  | { type: 'Point'; coordinates: Point; name?: string }
+  | { type: 'MultiPoint'; coordinates: MultiPoint; name?: string }
+  | { type: 'LineString'; coordinates: LineString; name?: string; width?: number }
+  | GeoGeometryCollection;
+
+export interface GeoGeometryCollection {
+  type: 'GeometryCollection';
+  geometries: GeoGeometry[];
+  name?: string;
+}
+
+/** Discriminated union for feature types — improves type narrowing. */
+export type FeatureType =
+  | 'Polygon'
+  | 'MultiPolygon'
+  | 'Point'
+  | 'MultiPoint'
+  | 'LineString'
+  | 'GeometryCollection'
+  | 'Feature'
+  | string; // fallback for non-standard types
+
+/** A single feature — FicGeoRen's looser dialect allows `id` at top level. */
+export interface GeoFeature {
+  type: FeatureType;
+  id?: string;
+  coordinates?: MultiPolygon | Polygon | MultiPoint | LineString | Coord[];
+  geometries?: GeoGeometry[];
+  geometry?: GeoGeometry;
+  properties?: Record<string, unknown>;
+  name?: string;
+  width?: number;
+}
+
+/** Top-level GeoJSON feature collection. */
+export interface GeoCollection {
+  type: string;
+  features?: GeoFeature[];
+}
+
+// ── Theme & layer definitions ───────────────────────────────────
 
 /** A single layer definition from the theme. */
 export interface LayerDef {
@@ -36,23 +112,7 @@ export interface Theme {
   layers: LayerDef[];
 }
 
-/** GeoJSON-compatible feature (FicGeoRen's looser format). */
-export interface GeoFeature {
-  type: string;
-  id?: string;
-  coordinates?: any;
-  geometries?: any[];
-  geometry?: any;
-  properties?: Record<string, any>;
-  name?: string;
-  width?: number;
-}
-
-/** Top-level GeoJSON feature collection. */
-export interface GeoCollection {
-  type: string;
-  features?: GeoFeature[];
-}
+// ── Render options ──────────────────────────────────────────────
 
 /** Render options passed to FicGeoRen.render(). */
 export interface RenderOptions {

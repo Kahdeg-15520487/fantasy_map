@@ -5,7 +5,9 @@ body {
   background: #1a1a2e;
   color: #e0e0e0;
   overflow: hidden;
+  /* #14: 100dvh with 100vh fallback for older browsers */
   height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
 }
@@ -59,6 +61,7 @@ button {
 }
 
 button:hover { background: #1a5276; }
+button:active { transform: scale(0.97); }
 
 #map-container {
   flex: 1;
@@ -72,13 +75,61 @@ button:hover { background: #1a5276; }
   display: block;
 }
 
+/* #15: SVG 2 `r` property transition has limited support;
+   use transform: scale() instead for broader compatibility */
 .town-marker {
-  transition: r 0.2s;
+  transition: transform 0.2s, filter 0.2s;
+  transform-origin: center;
+  /* L3: transform-box: fill-box has limited support; provide transform-origin fallback */
+  transform-box: fill-box;
 }
 
 .town-marker:hover {
   filter: brightness(1.5);
   stroke-width: 3;
+}
+
+/* #16: WCAG 2.4.7 — keyboard focus-visible styles */
+button:focus-visible,
+.controls label:focus-within {
+  outline: 2px solid #3498db;
+  outline-offset: 2px;
+}
+
+/* M7: WCAG 2.3.3 — respect prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  .town-marker {
+    transition: none;
+  }
+  * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+/* M10: Skip link for keyboard navigation (WCAG 2.4.1) */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: #0f3460;
+  color: #e0e0e0;
+  padding: 8px 16px;
+  z-index: 100;
+  font-size: 14px;
+  text-decoration: none;
+  border-radius: 0 0 4px 0;
+  transition: top 0.2s;
+}
+.skip-link:focus {
+  top: 0;
+}
+
+/* L4 + L5: Touch and selection behavior for SVG */
+#map-container svg {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 #tooltip {

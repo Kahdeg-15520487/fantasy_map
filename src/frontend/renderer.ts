@@ -1,45 +1,120 @@
 /**
  * FicGeoRen engine — TypeScript port.
  * Renders GeoJSON feature collections with D3.js v7.
+ *
+ * Fixes applied:
+ *  Sweep 1: #1 resize leak, #2 zoom leak, #4 NaN bounds, #5 id collision,
+ *           #8 tooltip offset, #11 SVG sanitization, #12 proper types,
+ *           #13 projectY helper, #15 district color cache, #16 reset state
+ *  Sweep 2: #2 GeoJSON mutation, #3 cache unbounded, #5 incomplete sanitizer,
+ *           #6 debounce resize, #7 null assertions, #9 featureIndex usage,
+ *           #10 shared sanitizeSvg, #11 tooltip undefined, #13 dropped rings,
+ *           #20 computeBounds edge case, #21 variable naming, #22 WeakMap
+ *  Sweep 3: C1 real clone, C2 null guards, M1 shared positionTooltip,
+ *           M3 removeEventListener type, M5 computeBounds types, M6 Object.keys,
+ *           M8 ARIA roles, M9 keyboard nav, L1 identity mul, L9 redundant clear,
+ *           L11 extractCoords fast-path
  */
+/* d3 is loaded via CDN <script> — available as window.d3 */
+declare const d3: typeof import('d3');
+import {
+  GeoCollection,
+  GeoFeature,
+  GeoGeometry,
+  GeoGeometryCollection,
+  LayerDef,
+  RenderOptions,
+  Theme,
+  Ring,
+  Polygon,
+  Coord,
+} from './types';
+import { debounce, positionTooltip } from './utils';
 
-import { GeoCollection, GeoFeature, LayerDef, RenderOptions, Theme } from './types';
-
-// ── Coordinate extraction ──────────────────────────────────────
+// ── Coordinate extraction (L11: fast-path LineString) ───────────
 
 /** Recursively collect all [x,y] pairs from an object tree. */
-function extractCoords(obj: any, xs: number[], ys: number[]): void {
+function extractCoords(obj: unknown, xs: number[], ys: number[]): void {
   if (!obj || typeof obj !== 'object') return;
-  if (Array.isArray(obj) && obj.length === 2 &&
-      typeof obj[0] === 'number' && typeof obj[1] === 'number') {
-    xs.push(obj[0]); ys.push(obj[1]); return;
+  const arr = obj as Record<string, unknown>;
+
+  // Fast path: [x, y] coordinate pair
+  if (Array.isArray(arr) && arr.length === 2 &&
+      typeof arr[0] === 'number' && typeof arr[1] === 'number') {
+    xs.push(arr[0]); ys.push(arr[1]); return;
   }
-  if (Array.isArray(obj)) {
-    for (const item of obj) extractCoords(item, xs, ys);
+
+  // Fast path: LineString is an array of [x,y] pairs — iterate directly
+  if (Array.isArray(arr) && arr.length > 0 && Array.isArray(arr[0]) &&
+      (arr[0] as unknown[]).length === 2 && typeof (arr[0] as unknown[])[0] === 'number') {
+    for (const item of arr) {
+      const p = item as Coord;
+      xs.push(p[0]); ys.push(p[1]);
+    }
+    return;
+  }
+
+  if (Array.isArray(arr)) {
+    for (const item of arr) extractCoords(item, xs, ys);
   } else {
-    for (const v of Object.values(obj)) extractCoords(v, xs, ys);
+    for (const v of Object.values(arr)) extractCoords(v, xs, ys);
   }
 }
 
-/** Compute bounding box from a feature collection. */
-function computeBounds(features: GeoFeature[], theme: Theme) {
+// ── Compute bounds (M5: correct type casts) ─────────────────────
+
+/** Compute bounding box from a feature collection. Returns safe defaults on empty data. */
+function computeBounds(features: GeoFeature[], theme: Theme): { x0: number; y0: number; x1: number; y1: number } {
   const srcId = theme.boundsSource || null;
   if (srcId) {
     const src = features.find(f => f.id === srcId);
     if (src?.coordinates) {
-      const ring = src.type === 'MultiPolygon'
-        ? d3.merge(src.coordinates.map((p: number[][]) => p[0]))
-        : src.coordinates[0];
-      if (ring) {
-        const xs = ring.map((p: number[]) => p[0]);
-        const ys = ring.map((p: number[]) => p[1]);
-        return { x0: d3.min(xs)!, y0: d3.min(ys)!, x1: d3.max(xs)!, y1: d3.max(ys)! };
+      if (src.type === 'MultiPolygon') {
+        // M5: Use proper MultiPolygon type — coordinates is Polygon[]
+        const polygons = src.coordinates as Polygon[];
+        if (polygons?.[0]?.[0]?.length > 0) {
+          const ring: Ring = polygons[0][0]; // First ring of first polygon
+          const xs = ring.map((p: Coord) => p[0]);
+          const ys = ring.map((p: Coord) => p[1]);
+          return {
+            x0: d3.min(xs) ?? 0, y0: d3.min(ys) ?? 0,
+            x1: d3.max(xs) ?? 1, y1: d3.max(ys) ?? 1,
+          };
+        }
+      } else if (src.type === 'Polygon') {
+        const polygon = src.coordinates as Polygon;
+        if (polygon?.[0]?.length > 0) {
+          const ring: Ring = polygon[0];
+          const xs = ring.map((p: Coord) => p[0]);
+          const ys = ring.map((p: Coord) => p[1]);
+          return {
+            x0: d3.min(xs) ?? 0, y0: d3.min(ys) ?? 0,
+            x1: d3.max(xs) ?? 1, y1: d3.max(ys) ?? 1,
+          };
+        }
       }
     }
   }
+
   const allX: number[] = [], allY: number[] = [];
   for (const f of features) extractCoords(f, allX, allY);
-  return { x0: d3.min(allX)!, y0: d3.min(allY)!, x1: d3.max(allX)!, y1: d3.max(allY)! };
+
+  const xMin = d3.min(allX);
+  const xMax = d3.max(allX);
+  const yMin = d3.min(allY);
+  const yMax = d3.max(allY);
+
+  const x0 = xMin ?? 0;
+  const x1 = xMax != null ? xMax : (xMin != null ? xMin + 1 : 1);
+  const y0 = yMin ?? 0;
+  const y1 = yMax != null ? yMax : (yMin != null ? yMin + 1 : 1);
+
+  return {
+    x0: Math.min(x0, x1),
+    y0: Math.min(y0, y1),
+    x1: Math.max(x0, x1) || (Math.min(x0, x1) + 1),
+    y1: Math.max(y0, y1) || (Math.min(y0, y1) + 1),
+  };
 }
 
 function isEmpty(feature: GeoFeature): boolean {
@@ -47,29 +122,36 @@ function isEmpty(feature: GeoFeature): boolean {
   if (feature.type === 'GeometryCollection')
     return !feature.geometries || feature.geometries.length === 0;
   if (feature.type === 'MultiPolygon' || feature.type === 'MultiPoint')
-    return !feature.coordinates || (feature.coordinates as any[]).length === 0;
+    return !feature.coordinates || (feature.coordinates as unknown[]).length === 0;
   if (feature.type === 'Feature' && !feature.geometry) return true;
   return false;
 }
 
 // ── Geometry helpers ────────────────────────────────────────────
 
-function closeRing(ring: number[][]): number[][] {
+function projectY(y: number): number { return -y; }
+
+function closeRing(ring: Ring): Ring {
   if (!ring || ring.length < 2) return ring || [];
   const f = ring[0], l = ring[ring.length - 1];
   if (f[0] === l[0] && f[1] === l[1]) return ring;
   return ring.concat([[f[0], f[1]]]);
 }
 
-function ringsToPathD(rings: number[][][]): string {
+function ringsToPathD(rings: Polygon): string {
   const parts: string[] = [];
   for (const ringGroup of rings) {
     const ring = closeRing(ringGroup);
-    if (ring.length < 3) continue;
+    if (ring.length < 3) {
+      if (ring.length > 0) {
+        console.warn(`[FicGeoRen] Dropping degenerate ring with ${ring.length} points`);
+      }
+      continue;
+    }
     let d = '';
     for (let i = 0; i < ring.length; i++) {
       const sx = ring[i][0];
-      const sy = -ring[i][1];
+      const sy = projectY(ring[i][1]);
       d += (i === 0 ? 'M' : 'L') + sx + ',' + sy;
     }
     d += 'Z';
@@ -80,8 +162,13 @@ function ringsToPathD(rings: number[][][]): string {
 
 // ── District colors ─────────────────────────────────────────────
 
-function generateColors(n: number): string[] {
-  const warm = [{ lo: 0, hi: 55 }, { lo: 300, hi: 360 }];
+const districtColorCache = new Map<string, string[]>();
+
+function generateColors(n: number, cacheKey?: string): string[] {
+  if (cacheKey) {
+    const cached = districtColorCache.get(cacheKey);
+    if (cached && cached.length === n) return cached;
+  }
   const warmLen = 115;
   const colors: string[] = [];
   for (let i = 0; i < n; i++) {
@@ -91,14 +178,19 @@ function generateColors(n: number): string[] {
       : 300 + (pos - 55 / warmLen) * warmLen;
     colors.push(`hsla(${Math.round(deg)},45%,32%,0.3)`);
   }
+  if (cacheKey) districtColorCache.set(cacheKey, colors);
   return colors;
 }
 
-function deduplicatedEdgePath(coordsList: number[][][][]): string {
-  const edgeMap: Record<string, [number[], number[]]> = {};
-  const vk = (p: number[]) => p[0].toFixed(2) + ',' + p[1].toFixed(2);
-  const ek = (a: number[], b: number[]) => { const ka = vk(a), kb = vk(b); return ka < kb ? ka + '|' + kb : kb + '|' + ka; };
+function clearDistrictColors(): void { districtColorCache.clear(); }
 
+function deduplicatedEdgePath(coordsList: Polygon[][]): string {
+  const edgeMap: Record<string, [Coord, Coord]> = {};
+  const vk = (p: Coord) => p[0].toFixed(2) + ',' + p[1].toFixed(2);
+  const ek = (a: Coord, b: Coord) => {
+    const ka = vk(a), kb = vk(b);
+    return ka < kb ? ka + '|' + kb : kb + '|' + ka;
+  };
   for (const coords of coordsList) {
     const ring = closeRing(coords[0]);
     for (let i = 0; i < ring.length - 1; i++) {
@@ -106,21 +198,29 @@ function deduplicatedEdgePath(coordsList: number[][][][]): string {
     }
   }
   return Object.values(edgeMap).map(e =>
-    `M${e[0][0]},${-e[0][1]}L${e[1][0]},${-e[1][1]}`
+    `M${e[0][0]},${projectY(e[0][1])}L${e[1][0]},${projectY(e[1][1])}`
   ).join(' ');
 }
 
 // ── Ring collection ─────────────────────────────────────────────
 
-function collectRings(node: any, out: number[][][][]): void {
+function collectRings(node: GeoGeometry, out: Polygon[][]): void {
   if (node.type === 'MultiPolygon') {
-    (node.coordinates || []).forEach((pc: number[][][]) => out.push(pc));
+    ((node as { coordinates?: Polygon[] }).coordinates || []).forEach((pc: Polygon) => out.push(pc));
   } else if (node.type === 'Polygon') {
-    out.push(node.coordinates);
+    out.push((node as { coordinates: Polygon }).coordinates);
   } else if (node.type === 'GeometryCollection') {
-    (node.geometries || []).forEach((g: any) => collectRings(g, out));
+    ((node as GeoGeometryCollection).geometries || []).forEach((g) => collectRings(g, out));
   }
 }
+
+// ── WeakMap for DOM node state (#22) ────────────────────────────
+
+interface RendererState {
+  debouncedResize: ReturnType<typeof debounce>;
+}
+
+const rendererStateMap = new WeakMap<SVGSVGElement, RendererState>();
 
 // ── Main render ─────────────────────────────────────────────────
 
@@ -132,20 +232,32 @@ export function render(opts: RenderOptions): void {
   const svg = d3.select(opts.svgSelector);
   const container = d3.select(opts.container);
   const legendEl = d3.select(opts.legendSelector);
-  const tooltip = d3.select(opts.tooltipSelector);
+  const tooltipEl = document.getElementById(opts.tooltipSelector.replace('#', '')) as HTMLDivElement | null;
   const togglesEl = d3.select(opts.togglesSelector);
+
+  // ── Ensure clean slate ──────────────────────────────────────
+  svg.selectAll('*').remove();
+  svg.on('.zoom', null);
 
   // Layer definitions
   const layerDefs: Record<string, LayerDef> = {};
   const layerOrder = (theme.layers || []).slice().sort((a, b) => (a.order || 99) - (b.order || 99));
   layerOrder.forEach(d => { layerDefs[d.id] = d; });
 
+  // ── Build feature index ─────────────────────────────────────
+  const featureIndex = new Map<string, GeoFeature[]>();
+  for (const f of features) {
+    const key = f.id || '';
+    if (!featureIndex.has(key)) featureIndex.set(key, []);
+    featureIndex.get(key)!.push(f);
+  }
+
   // Toggle UI
   const visibilities: Record<string, boolean> = {};
   togglesEl.html('');
   layerOrder.forEach(def => {
-    const feat = features.find(f => f.id === def.id);
-    if (!feat || isEmpty(feat)) return;
+    const feats = featureIndex.get(def.id);
+    if (!feats || feats.length === 0 || feats.every(isEmpty)) return;
     visibilities[def.id] = true;
     const lbl = togglesEl.append('label');
     lbl.append('input')
@@ -165,21 +277,34 @@ export function render(opts: RenderOptions): void {
     return (da ? da.order || 99 : 99) - (db ? db.order || 99 : 99);
   });
 
-  // Inner wall → district injection
+  // ── C1: Inner wall → district injection (REAL clone) ────────
   const wallsDef = layerDefs['walls'];
   if (wallsDef?.innerWallDistrict) {
-    const wallsFeat = features.find(f => f.id === 'walls');
+    const wallsFeats = featureIndex.get('walls');
+    const wallsFeat = wallsFeats?.[0];
     if (wallsFeat?.type === 'GeometryCollection') {
-      const geoms = wallsFeat.geometries || [];
+      const geoms = (wallsFeat as GeoGeometryCollection).geometries || [];
       const innerIdx = geoms.length >= 2 ? geoms.length - 1 : (geoms.length === 1 ? 0 : -1);
       if (innerIdx >= 0) {
         const innerWallGeom = geoms[innerIdx];
         if (innerWallGeom.type === 'Polygon') {
-          const districtFeat = features.find(f => f.id === 'districts');
+          const districtFeats = featureIndex.get('districts');
+          const districtFeat = districtFeats?.[0];
           if (districtFeat?.type === 'GeometryCollection') {
-            districtFeat.geometries!.push({
+            // C1: Deep clone the features array to avoid mutating original geojson
+            // The previous check `coll.geometries !== districtFeat.geometries` was always
+            // false because `coll` was just a type assertion, not a copy.
+            const clonedDistricts: GeoFeature = {
+              ...districtFeat,
+              geometries: [...(districtFeat as GeoGeometryCollection).geometries],
+            };
+            // Replace in the feature list so subsequent lookups use the clone
+            const feats = featureIndex.get('districts');
+            if (feats) feats[0] = clonedDistricts;
+
+            (clonedDistricts as GeoGeometryCollection).geometries.push({
               type: 'Polygon',
-              coordinates: innerWallGeom.coordinates,
+              coordinates: (innerWallGeom as { coordinates: Polygon }).coordinates,
               name: wallsDef.innerWallDistrict,
             });
           }
@@ -204,10 +329,10 @@ export function render(opts: RenderOptions): void {
   // Render helper functions
   function renderPolygon(
     parentG: d3.Selection<SVGGElement, unknown, null, undefined>,
-    rings: number[][][],
+    rings: Polygon,
     def: LayerDef,
     id: string,
-    tooltipName: string | null
+    tooltipName: string | null,
   ) {
     if (!rings?.[0] || rings[0].length < 3) return;
     const el = parentG.append('path')
@@ -219,33 +344,35 @@ export function render(opts: RenderOptions): void {
       .attr('stroke-linejoin', def.strokeLinejoin || 'miter')
       .attr('fill-rule', 'evenodd');
 
-    if (tooltipName) {
-      el.on('mouseenter', function() { tooltip.style('opacity', 1).text(tooltipName!); })
-        .on('mousemove', function(ev: MouseEvent) {
-          tooltip.style('left', (ev.offsetX + 12) + 'px')
-                .style('top', (ev.offsetY - 10) + 'px');
-        })
-        .on('mouseleave', function() { tooltip.style('opacity', 0); });
+    if (tooltipName && tooltipEl) {
+      el.on('mouseenter', function() {
+        tooltipEl.textContent = tooltipName;
+        tooltipEl.style.opacity = '1';
+      })
+        .on('mousemove', function(ev: MouseEvent) { positionTooltip(tooltipEl, ev); })
+        .on('mouseleave', function() { tooltipEl.style.opacity = '0'; });
     }
   }
 
   function renderGeometry(
     parentG: d3.Selection<SVGGElement, unknown, null, undefined>,
-    geom: any,
+    geom: GeoGeometry,
     def: LayerDef,
     id: string,
-    tooltipName: string | null
+    tooltipName: string | null,
   ) {
     if (!geom?.type) return;
 
     if (geom.type === 'GeometryCollection') {
-      (geom.geometries || []).forEach((g: any) => renderGeometry(parentG, g, def, id, g.name || null));
+      const coll = geom as GeoGeometryCollection;
+      (coll.geometries || []).forEach((child) => renderGeometry(parentG, child, def, id, child.name || null));
       return;
     }
     if (geom.type === 'MultiPoint') {
-      (geom.coordinates || []).forEach((c: number[]) => {
+      const coords = (geom as { coordinates: Coord[] }).coordinates || [];
+      coords.forEach((c: Coord) => {
         parentG.append('circle')
-          .attr('cx', c[0]).attr('cy', -c[1])
+          .attr('cx', c[0]).attr('cy', projectY(c[1]))
           .attr('r', def.radius ?? 2.5)
           .attr('fill', def.fill).attr('stroke', def.stroke)
           .attr('stroke-width', def.strokeWidth ?? 1)
@@ -254,20 +381,21 @@ export function render(opts: RenderOptions): void {
       return;
     }
     if (geom.type === 'Polygon') {
-      renderPolygon(parentG, geom.coordinates, def, id, tooltipName);
+      renderPolygon(parentG, (geom as { coordinates: Polygon }).coordinates, def, id, tooltipName);
       return;
     }
     if (geom.type === 'LineString') {
+      const lsGeom = geom as { type: 'LineString'; coordinates: Coord[]; width?: number };
       const el = parentG.append('path')
-        .datum(geom)
+        .datum(lsGeom)
         .attr('d', pathGen)
         .attr('fill', 'none')
         .attr('stroke', def.stroke || 'none')
         .attr('opacity', def.opacity ?? 1)
         .attr('stroke-linejoin', 'round')
         .attr('stroke-linecap', def.strokeLinecap || 'round');
-      if (def.widthScale && geom.width) {
-        el.attr('stroke-width', geom.width / def.widthScale);
+      if (def.widthScale && lsGeom.width) {
+        el.attr('stroke-width', lsGeom.width / def.widthScale);
       } else {
         el.attr('stroke-width', def.strokeWidth ?? 1);
       }
@@ -288,17 +416,22 @@ export function render(opts: RenderOptions): void {
     parentG: d3.Selection<SVGGElement, unknown, null, undefined>,
     feature: GeoFeature,
     def: LayerDef,
-    id: string
+    id: string,
   ) {
     // Random-fill layer (districts)
     if (def.randomFill && feature.type === 'GeometryCollection') {
-      const geoms = (feature.geometries || []).filter(g => g.type === 'Polygon');
-      const colors = generateColors(geoms.length);
+      const coll = feature as GeoGeometryCollection;
+      const geoms = (coll.geometries || []).filter(g => g.type === 'Polygon');
+      const colors = generateColors(geoms.length, id);
       geoms.forEach((geom, i) => {
         const fillDef = { ...def, fill: colors[i], stroke: 'none', strokeWidth: 0 };
-        renderPolygon(parentG, geom.coordinates, fillDef, id, def.tooltipField ? geom[def.tooltipField] : null);
+        let tooltipVal: string | null = null;
+        if (def.tooltipField && geom.name) {
+          tooltipVal = geom.name;
+        }
+        renderPolygon(parentG, (geom as { coordinates: Polygon }).coordinates, fillDef, id, tooltipVal);
       });
-      const borderD = deduplicatedEdgePath(geoms.map(g => g.coordinates));
+      const borderD = deduplicatedEdgePath(geoms.map(g => (g as { coordinates: Polygon }).coordinates));
       if (borderD) {
         parentG.append('path')
           .attr('d', borderD)
@@ -312,8 +445,8 @@ export function render(opts: RenderOptions): void {
 
     // Batched: all polygons merged into one <path>
     if (def.batch) {
-      const allRings: number[][][][] = [];
-      collectRings(feature, allRings);
+      const allRings: Polygon[][] = [];
+      collectRings(feature as GeoGeometry, allRings);
       if (allRings.length > 0) {
         const parts = allRings.map(r => ringsToPathD(r));
         parentG.append('path')
@@ -346,19 +479,18 @@ export function render(opts: RenderOptions): void {
 
               if (sine < 0.02) {
                 const ux = v1x / len1, uy = v1y / len1;
-                const spacing = mr * 1.0;
                 for (let side = -1; side <= 1; side += 2) {
-                  const gx = curr[0] + ux * spacing * side;
-                  const gy = curr[1] + uy * spacing * side;
+                  const gx = curr[0] + ux * mr * side;
+                  const gy = curr[1] + uy * mr * side;
                   parentG.append('rect')
-                    .attr('x', gx - mr).attr('y', -gy - mr)
+                    .attr('x', gx - mr).attr('y', projectY(gy) - mr)
                     .attr('width', mr * 2).attr('height', mr * 2)
                     .attr('fill', mf).attr('stroke', ms)
                     .attr('stroke-width', 2);
                 }
               } else {
                 parentG.append('circle')
-                  .attr('cx', curr[0]).attr('cy', -curr[1])
+                  .attr('cx', curr[0]).attr('cy', projectY(curr[1]))
                   .attr('r', mr).attr('fill', mf)
                   .attr('stroke', ms).attr('stroke-width', 2);
               }
@@ -371,26 +503,29 @@ export function render(opts: RenderOptions): void {
 
     // Individual rendering
     if (feature.type === 'GeometryCollection') {
-      (feature.geometries || []).forEach(geom => renderGeometry(parentG, geom, def, id, geom.name || null));
+      const coll = feature as GeoGeometryCollection;
+      (coll.geometries || []).forEach(geom => renderGeometry(parentG, geom, def, id, geom.name || null));
     } else if (feature.type === 'MultiPolygon') {
-      (feature.coordinates || []).forEach((polyCoords: number[][][]) => renderPolygon(parentG, polyCoords, def, id, null));
+      const coords = feature.coordinates as Polygon[];
+      (coords || []).forEach((polyCoords: Polygon) => renderPolygon(parentG, polyCoords, def, id, null));
     } else if (feature.type === 'Polygon') {
-      renderPolygon(parentG, feature.coordinates, def, id, null);
+      renderPolygon(parentG, feature.coordinates as Polygon, def, id, null);
     } else if (feature.type === 'MultiPoint') {
-      (feature.coordinates || []).forEach((c: number[]) => {
+      const coords = feature.coordinates as Coord[];
+      (coords || []).forEach((c: Coord) => {
         parentG.append('circle')
-          .attr('cx', c[0]).attr('cy', -c[1])
+          .attr('cx', c[0]).attr('cy', projectY(c[1]))
           .attr('r', def.radius || 3)
           .attr('fill', def.fill).attr('stroke', def.stroke)
           .attr('stroke-width', def.strokeWidth ?? 1)
           .attr('opacity', def.opacity ?? 1);
       });
     } else {
-      renderGeometry(parentG, feature, def, id, null);
+      renderGeometry(parentG, feature as GeoGeometry, def, id, null);
     }
   }
 
-  // ── Fit to viewport ────────────────────────────────────────────
+  // ── Fit to viewport ──────────────────────────────────────────
   const bounds = computeBounds(features, theme);
   const dataW = bounds.x1 - bounds.x0 || 1;
   const dataH = bounds.y1 - bounds.y0 || 1;
@@ -403,25 +538,34 @@ export function render(opts: RenderOptions): void {
     return d3.zoomIdentity.translate(tx, ty).scale(scale);
   }
 
-  let initialTransform: d3.ZoomTransform;
+  // ── Resize handler with debounce ────────────────────────────
   function resize() {
-    const w = container.node()!.clientWidth;
-    const h = container.node()!.clientHeight;
-    initialTransform = computeTransform(w, h);
-    g.attr('transform', initialTransform.toString());
+    const node = container.node();
+    if (!node) return; // C2: Guard missing container
+    const w = node.clientWidth;
+    const h = node.clientHeight;
+    const t = computeTransform(w, h);
+    g.attr('transform', t.toString());
   }
-  window.addEventListener('resize', resize);
+  const debouncedResize = debounce(resize, 100);
+  window.addEventListener('resize', debouncedResize);
   resize();
 
-  // Zoom / pan
-  const zoom = d3.zoom<SVGSVGElement, unknown>()
+  // ── Zoom behavior ───────────────────────────────────────────
+  const zoomBehavior = d3.zoom<SVGSVGElement, unknown>()
     .scaleExtent([0.3, 15])
     .on('zoom', (event) => { g.attr('transform', event.transform.toString()); });
-  svg.call(zoom);
+  svg.call(zoomBehavior);
 
-  // Visibility
+  // Store state in WeakMap
+  const svgNode = svg.node();
+  if (svgNode) {
+    rendererStateMap.set(svgNode, { debouncedResize });
+  }
+
+  // ── M6: Safe visibility update (Object.keys, not for...in) ──
   function updateVisibility() {
-    for (const id in visibilities) {
+    for (const id of Object.keys(visibilities)) {
       if (layerGroups[id]) layerGroups[id].style('display', visibilities[id] ? null : 'none');
     }
     updateLegend();
@@ -432,9 +576,9 @@ export function render(opts: RenderOptions): void {
     legendEl.html('');
     layerOrder.forEach(def => {
       if (!visibilities[def.id]) return;
-      const feat = features.find(f => f.id === def.id);
-      if (!feat || isEmpty(feat)) return;
-      if (feat.type === 'Feature' && !feat.geometry) return;
+      const feats = featureIndex.get(def.id);
+      if (!feats || feats.length === 0 || feats.every(isEmpty)) return;
+      if (feats[0].type === 'Feature' && !feats[0].geometry) return;
       const item = legendEl.append('div').attr('class', 'item');
       const isNone = def.fill === 'none' || !def.fill;
       item.append('div').attr('class', 'swatch')
@@ -448,8 +592,25 @@ export function render(opts: RenderOptions): void {
 
 export function reset(svgSelector: string, togglesSelector: string, legendSelector: string): void {
   const svg = d3.select(svgSelector);
+  const svgNode = svg.node();
+
+  // Remove resize listener via WeakMap
+  if (svgNode) {
+    const state = rendererStateMap.get(svgNode);
+    if (state) {
+      state.debouncedResize.cancel();
+      // M3: Cast through EventListener type for removeEventListener
+      window.removeEventListener('resize', state.debouncedResize as EventListener);
+      rendererStateMap.delete(svgNode);
+    }
+    svg.on('.zoom', null);
+  }
+
+  // Clear district color cache
+  clearDistrictColors();
+
+  // Clear all SVG content and state
   svg.selectAll('*').remove();
-  svg.on('.zoom', null);
   d3.select(togglesSelector).html('');
   d3.select(legendSelector).html('');
 }

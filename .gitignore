@@ -1,8 +1,20 @@
 node_modules/
 output/
 build/
+dist/
 *.tsbuildinfo
 nul
 run-realm.ts
 .pigenerated/
 .pi/
+
+# Compiled output from legacy src/frontend/ (vanilla-TS scratch, see HANDOFF.md)
+src/frontend/app.js
+src/frontend/app.js.map
+
+# Generated frontend data (produced by scripts/generate-*.ts) — regenerate locally
+frontend/public/realm.json
+frontend/public/realm.svg
+frontend/public/towns.json
+frontend/public/city/
+frontend/public/village/

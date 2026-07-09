@@ -5,8 +5,8 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc",
-    "generate": "tsx src/build.ts",
+    "build:frontend": "tsc -p tsconfig.frontend.json && node -e \"const fs=require('fs');fs.copyFileSync('src/frontend/index.html','dist/frontend/index.html');fs.copyFileSync('src/frontend/style.css','dist/frontend/style.css');\"",
+    "serve": "npm run build:frontend && tsx serve.ts",
     "demo": "tsx src/demo.ts",
     "demo:realm": "tsx src/realm/index.ts",
     "demo:city": "tsx src/city/index.ts",
@@ -14,7 +14,13 @@
     "demo:cave": "tsx src/cave/index.ts",
     "demo:dungeon": "tsx src/dungeon/index.ts",
     "demo:dwelling": "tsx src/dwelling/index.ts",
-    "test:integration": "tsx src/integration_test.ts"
+    "generate": "tsx scripts/generate-all.ts",
+    "generate:realm": "tsx scripts/generate-realm.ts",
+    "generate:town": "tsx scripts/generate-town.ts",
+    "dev": "cd frontend && npm run dev",
+    "build": "cd frontend && npm run build",
+    "preview": "cd frontend && npm run preview",
+    "setup": "cd frontend && npm install"
   },
   "keywords": [
     "procedural-generation",

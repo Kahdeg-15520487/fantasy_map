@@ -9,9 +9,11 @@ import * as path from 'path';
 import { init as initCity, createGenerator as createCityGen } from './city/index';
 import type { CityOptions } from './city/types';
 
-// ── Other generators ───────────────────────────────────────────
-import { initEngine as initRealmEngine } from './realm/engine';
-import { initEngine as initVillageEngine } from './village/engine';
+// ── Realm + Village (have generate APIs) ───────────────────────
+import { init as initRealm, createGenerator as createRealmGen } from './realm/index';
+import { init as initVillage, createGenerator as createVillageGen } from './village/index';
+
+// ── Engines without a generate wrapper (init-only smoke test) ──
 import { initEngine as initCaveEngine } from './cave/engine';
 import { initEngine as initDungeonEngine } from './dungeon/engine';
 import { initEngine as initDwellingEngine } from './dwelling/engine';
@@ -84,16 +86,67 @@ async function testCity(): Promise<boolean> {
     fs.writeFileSync(path.join(OUTPUT_DIR, `${sample.name}.svg`), svg);
     console.log(`  ✅ SVG: ${svg.length} chars`);
 
-    // Export PNG
-    try {
-      const png = await city.exportPng();
-      fs.writeFileSync(path.join(OUTPUT_DIR, `${sample.name}.png`), png);
-      console.log(`  ✅ PNG: ${png.length} bytes`);
-    } catch (e: any) {
-      console.log(`  ⚠ PNG failed: ${e.message}`);
-    }
+    // PNG export intentionally skipped (not supported in headless Node canvas).
 
     return true;
+  } catch (e: any) {
+    console.log(`  ❌ Failed: ${e.message}`);
+    return false;
+  }
+}
+
+async function testRealm(): Promise<boolean> {
+  console.log('\n🌍 Perilous Shores (realm)');
+  try {
+    await initRealm();
+    const gen = createRealmGen();
+    const samples = readVerificationTxt('realm');
+    const seed = samples[0]?.seed ?? 12345;
+    const tags = samples[0] ? parseSeedUrl(samples[0].url).params.tags : undefined;
+    const name = samples[0]?.name ?? 'realm';
+    console.log(`  Generating "${name}" (seed: ${seed})...`);
+
+    const realm = await gen.generate({ seed, tags });
+    console.log(`  ✅ Realm: ${realm.name}`);
+
+    const json = await realm.exportJson();
+    fs.writeFileSync(path.join(OUTPUT_DIR, `${name}.json`), json);
+    console.log(`  ✅ JSON: ${json.length} chars`);
+
+    const svg = await realm.exportSvg();
+    fs.writeFileSync(path.join(OUTPUT_DIR, `${name}.svg`), svg);
+    console.log(`  ✅ SVG: ${svg.length} chars`);
+
+    return json.length > 2 && svg.length > 20;
+  } catch (e: any) {
+    console.log(`  ❌ Failed: ${e.message}`);
+    return false;
+  }
+}
+
+async function testVillage(): Promise<boolean> {
+  console.log('\n🏠 Village Generator');
+  try {
+    await initVillage();
+    const gen = createVillageGen();
+    const samples = readVerificationTxt('village');
+    const seed = samples[0]?.seed ?? 12345;
+    const tags = samples[0] ? parseSeedUrl(samples[0].url).params.tags : undefined;
+    const name = samples[0]?.name ?? 'village';
+    console.log(`  Generating "${name}" (seed: ${seed})...`);
+
+    const village = await gen.generate({ seed, tags });
+    console.log(`  ✅ Village: ${village.name}`);
+
+    const json = await village.exportJson();
+    fs.writeFileSync(path.join(OUTPUT_DIR, `${name}.json`), json);
+    console.log(`  ✅ JSON: ${json.length} chars`);
+
+    const svg = await village.exportSvg();
+    fs.writeFileSync(path.join(OUTPUT_DIR, `${name}.svg`), svg);
+    console.log(`  ✅ SVG: ${svg.length} chars`);
+
+    return json.length > 2;
   } catch (e: any) {
     console.log(`  ❌ Failed: ${e.message}`);
     return false;
@@ -138,9 +191,11 @@ async function main() {
   // Test City (full flow)
   results.city = await testCity();
 
-  // Test other engines (init only, report available classes)
-  results.realm = await testEngine('Perilous Shores (realm)', initRealmEngine);
-  results.village = await testEngine('Village Generator', initVillageEngine);
+  // Test realm + village (full generation via their index.ts APIs)
+  results.realm = await testRealm();
+  results.village = await testVillage();
+
+  // Test remaining engines (init only, report available classes)
   results.cave = await testEngine('Cave Generator', initCaveEngine);
   results.dungeon = await testEngine('One Page Dungeon', initDungeonEngine);
   results.dwelling = await testEngine('Dwellings', initDwellingEngine);
@@ -157,6 +212,10 @@ async function main() {
   } else {
     console.log('\n⚠ Some generators failed initialization.');
   }
+
+  // The Haxe/OpenFL runtimes leave open handles (timers, canvas, RAF polyfills)
+  // that keep the Node event loop alive. Force exit once work is done.
+  process.exit(allOk ? 0 : 1);
 }
 
 main().catch(err => {
