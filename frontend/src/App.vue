@@ -63,12 +63,14 @@ onUnmounted(() => {
 <template>
   <div class="app">
     <header>
-      <button v-if="currentView === 'detail'" @click="goBack" title="Back to realm">← Back</button>
-      <h1 aria-live="polite">
-        <template v-if="currentView === 'realm'">🗺️ {{ realmTheme.title }}</template>
-        <template v-else>🏘️ {{ currentTown?.name }}</template>
-      </h1>
-      <div v-if="currentView === 'detail'" id="layer-toggles"></div>
+      <nav v-if="currentView === 'detail'" class="breadcrumb" aria-label="Breadcrumb">
+        <button class="crumb" @click="goBack" title="Back to realm map">🗺️ Realm</button>
+        <span class="separator">›</span>
+        <span class="crumb current">
+          {{ currentTown?.type === 'village' ? '🏘️' : '🏙️' }} {{ currentTown?.name }}
+        </span>
+      </nav>
+      <h1 v-else aria-live="polite">🗺️ {{ realmTheme.title }}</h1>
     </header>
 
     <div v-if="loading" class="loading">Loading…</div>
@@ -133,6 +135,33 @@ button {
 }
 button:hover { background: #1a5276; }
 button:focus-visible { outline: 2px solid #3498db; outline-offset: 2px; }
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+}
+.breadcrumb .crumb {
+  background: none;
+  border: none;
+  color: #3498db;
+  padding: 4px 8px;
+  font-size: inherit;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.breadcrumb .crumb:hover { background: #0f3460; }
+.breadcrumb .crumb.current {
+  color: #e0e0e0;
+  cursor: default;
+  font-weight: 600;
+}
+.breadcrumb .crumb.current:hover { background: none; }
+.breadcrumb .separator {
+  color: #555;
+  font-size: 18px;
+  user-select: none;
+}
 .loading {
   flex: 1;
   display: flex;

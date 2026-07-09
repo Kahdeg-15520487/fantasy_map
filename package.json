@@ -17,7 +17,11 @@
     "demo:dwelling": "tsx src/dwelling/index.ts",
     "generate": "tsx scripts/generate-all.ts",
     "generate:realm": "tsx scripts/generate-realm.ts",
-    "generate:town": "tsx scripts/generate-town.ts"
+    "generate:town": "tsx scripts/generate-town.ts",
+    "dev": "cd frontend && npm run dev",
+    "build": "cd frontend && npm run build",
+    "preview": "cd frontend && npm run preview",
+    "setup": "cd frontend && npm install"
   },
   "keywords": [
     "procedural-generation",

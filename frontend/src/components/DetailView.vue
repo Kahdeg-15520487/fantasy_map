@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import type { TownMarker, Theme, GeoCollection } from '../types'
-import { useRenderer } from '../composables/useRenderer'
+import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import * as d3 from 'd3'
+import type { TownMarker } from '../types'
 
 const props = defineProps<{
   town: TownMarker
@@ -13,66 +13,76 @@ const emit = defineEmits<{
 
 const containerRef = ref<HTMLDivElement | null>(null)
 const svgRef = ref<SVGSVGElement | null>(null)
-const tooltipRef = ref<HTMLDivElement | null>(null)
 const loading = ref(true)
 const errorMsg = ref('')
 
-const renderer = useRenderer()
-let toggleFn: ReturnType<typeof useRenderer>['render'] extends (...args: any[]) => infer R ? R : never = null as any
+let resizeHandler: (() => void) | null = null
 
-async function loadTown() {
-  loading.value = true
-  errorMsg.value = ''
+function fitToViewport() {
+  const svgEl = svgRef.value
+  const containerEl = containerRef.value
+  if (!svgEl || !containerEl) return
 
+  const g = d3.select(svgEl).select<SVGGElement>('.detail-bg')
+  const bbox = g.node()?.getBBox()
+  if (!bbox || bbox.width <= 0 || bbox.height <= 0) return
+
+  const w = containerEl.clientWidth
+  const h = containerEl.clientHeight
+  const pad = 20
+  const scale = Math.min((w - pad * 2) / bbox.width, (h - pad * 2) / bbox.height)
+  const tx = (w - bbox.width * scale) / 2 - bbox.x * scale
+  const ty = (h - bbox.height * scale) / 2 - bbox.y * scale
+  g.attr('transform', `translate(${tx},${ty}) scale(${scale})`)
+}
+
+onMounted(async () => {
   try {
-    const themeUrl = props.town.file.replace(/\.json$/, '_theme.json')
-    const [geojsonResp, themeResp] = await Promise.allSettled([
-      fetch(props.town.file),
-      fetch(themeUrl),
-    ])
+    const svgUrl = props.town.file.replace(/\.json$/, '.svg')
+    const resp = await fetch(svgUrl)
+    if (!resp.ok) throw new Error(`Failed to load SVG: ${resp.status}`)
 
-    if (geojsonResp.status === 'rejected' || !geojsonResp.value.ok) {
-      throw new Error(`Failed to load ${props.town.name}`)
-    }
-
-    const geojson: GeoCollection = await geojsonResp.value.json()
-    const theme: Theme = themeResp.status === 'fulfilled' && themeResp.value.ok
-      ? await themeResp.value.json()
-      : { title: props.town.name, padding: 60, layers: [] }
-
-    if (!geojson.features) {
-      throw new Error(`Invalid GeoJSON for ${props.town.name}`)
-    }
+    const svgText = await resp.text()
+    // Extract inner content from the SVG (strip <?xml>, keep <svg> inner)
+    const match = svgText.match(/<svg[^>]*>([\s\S]*)<\/svg>/)
+    const inner = match ? match[1] : svgText
 
     loading.value = false
     await nextTick()
 
-    // Wait for DOM to be ready
-    await nextTick()
+    const svgEl = svgRef.value
+    if (!svgEl || !inner) return
 
-    toggleFn = renderer.render({
-      geojson,
-      theme,
-      svgRef,
-      tooltipRef,
-      containerRef,
-    })
+    const parser = new DOMParser()
+    const doc = parser.parseFromString(
+      `<svg xmlns="http://www.w3.org/2000/svg">${inner}</svg>`,
+      'image/svg+xml'
+    )
+    const parsed = doc.querySelector('svg')
+    if (!parsed) return
+
+    const imported = document.importNode(parsed, true)
+    const g = d3.select(svgEl).append('g').attr('class', 'detail-bg')
+    const gNode = g.node()
+    while (imported.firstChild) {
+      gNode!.appendChild(imported.firstChild)
+    }
+
+    fitToViewport()
+    resizeHandler = () => fitToViewport()
+    window.addEventListener('resize', resizeHandler)
   } catch (err) {
     console.error(err)
     errorMsg.value = `Failed to load ${props.town.name}`
     loading.value = false
   }
-}
-
-onMounted(loadTown)
-
-watch(() => props.town, () => {
-  renderer.cleanup()
-  loadTown()
 })
 
 onUnmounted(() => {
-  renderer.cleanup()
+  if (resizeHandler) {
+    window.removeEventListener('resize', resizeHandler)
+    resizeHandler = null
+  }
 })
 </script>
 
@@ -81,26 +91,17 @@ onUnmounted(() => {
     <div v-if="loading" class="loading">Loading {{ town.name }}…</div>
     <div v-else-if="errorMsg" class="loading error">{{ errorMsg }}</div>
 
-    <div v-show="!loading && !errorMsg" ref="containerRef" class="map-container">
-      <svg ref="svgRef" id="detail-map" role="img" :aria-label="`Map of ${town.name}`"></svg>
-      <div ref="tooltipRef" class="tooltip" role="tooltip"></div>
-    </div>
-
-    <div v-if="!loading && !errorMsg && renderer.layerLabels.value.length" class="legend" aria-live="polite">
-      <div
-        v-for="layer in renderer.layerLabels.value"
-        :key="layer.id"
-        class="legend-item"
-      >
-        <label>
-          <input
-            type="checkbox"
-            :checked="renderer.visibilities.value[layer.id]"
-            @change="(e: Event) => toggleFn?.toggleLayer(layer.id, (e.target as HTMLInputElement).checked)"
-          />
-          <span>{{ layer.label }}</span>
-        </label>
-      </div>
+    <div
+      v-show="!loading && !errorMsg"
+      ref="containerRef"
+      class="map-container"
+    >
+      <svg
+        ref="svgRef"
+        id="detail-map"
+        role="img"
+        :aria-label="`Map of ${town.name}`"
+      ></svg>
     </div>
   </div>
 </template>
@@ -122,49 +123,6 @@ onUnmounted(() => {
   width: 100%;
   height: 100%;
   display: block;
-}
-.tooltip {
-  position: absolute;
-  top: 0; left: 0;
-  background: rgba(0,0,0,0.85);
-  color: #fff;
-  padding: 4px 10px;
-  border-radius: 4px;
-  font-size: 13px;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.15s;
-  white-space: nowrap;
-  z-index: 100;
-}
-.legend {
-  position: absolute;
-  bottom: 12px;
-  right: 12px;
-  background: rgba(22,33,62,0.9);
-  border: 1px solid #0f3460;
-  border-radius: 6px;
-  padding: 8px 12px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  max-width: 300px;
-  z-index: 10;
-}
-.legend-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-}
-.legend-item label {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  cursor: pointer;
-}
-.legend-item input[type="checkbox"] {
-  cursor: pointer;
 }
 .loading {
   flex: 1;

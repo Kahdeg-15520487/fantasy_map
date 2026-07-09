@@ -87,12 +87,36 @@ export function createGenerator(): RealmGenerator {
       // Create Scene for SVG export (must be created before Fe.export needs the view)
       const Scene = g.RealmMapScene;
       let view: any = null;
+      // Maps each live Town model object -> its rendered icon Sprite/Container
+      // instance, captured by intercepting View.drawTown (see below). This
+      // lets callers read the icon's EXACT rendered bounding box directly
+      // from the live Haxe/OpenFL object graph (via sprite.getBounds(view)),
+      // instead of approximating the icon's visual center from
+      // cell.center + getOffset() (which is the icon CONTAINER's anchor, not
+      // necessarily its visual centroid — the house-cluster art drawn inside
+      // is laid out asymmetrically around that anchor and varies per-town
+      // since house count/layout is randomized per seed).
+      const iconSpritesByTown = new Map<any, any>();
       if (Scene && !Scene.inst) {
         try {
           new Scene();
           if (Scene.inst?.view) {
-            Scene.inst.view.draw(region);
             view = Scene.inst.view;
+            if (typeof view.drawTown === 'function') {
+              const origDrawTown = view.drawTown.bind(view);
+              view.drawTown = function (townArg: any) {
+                const beforeLen = this.sprites ? this.sprites.length : 0;
+                origDrawTown(townArg);
+                const afterLen = this.sprites ? this.sprites.length : 0;
+                // drawTown pushes the icon sprite first (and optionally a
+                // harbour sprite after) — the first newly-added entry is
+                // always the town's icon.
+                if (afterLen > beforeLen) {
+                  iconSpritesByTown.set(townArg, this.sprites[beforeLen]);
+                }
+              };
+            }
+            view.draw(region);
             Scene.inst.region = region;
           }
         } catch (e: any) {
@@ -107,6 +131,21 @@ export function createGenerator(): RealmGenerator {
         height: bp.height,
         options: { ...options, seed },
         region,
+
+        // Returns the EXACT rendered bounding box (in the view's/region's
+        // coordinate space — same units as cell.center) of a town's icon
+        // sprite, or null if unavailable. Use this for precise marker
+        // placement instead of guessing a fixed pixel offset.
+        getTownIconBounds(town: any): { x: number; y: number; width: number; height: number } | null {
+          const sprite = iconSpritesByTown.get(town);
+          if (!sprite || !view || typeof sprite.getBounds !== 'function') return null;
+          try {
+            const b = sprite.getBounds(view);
+            return { x: b.x, y: b.y, width: b.width, height: b.height };
+          } catch {
+            return null;
+          }
+        },
 
         exportJson(): Promise<string> {
           return new Promise((resolve, reject) => {

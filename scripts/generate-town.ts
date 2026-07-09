@@ -76,18 +76,43 @@ async function main() {
   const { init, createGenerator } = require(enginePath)
   await init()
 
-  const gen = createGenerator()
-  const result = await gen.generate({
-    seed,
-    ...(sizeStr ? { size: parseInt(sizeStr, 10) } : {}),
-    ...(tags ? { tags } : {}),
-  })
+  const MAX_RETRIES = 5
+  let result: any = null
+  let lastError: Error | null = null
+
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const currentSeed = attempt === 0 ? seed : Math.floor(Math.random() * 2147483647)
+      const gen = createGenerator()
+      result = await gen.generate({
+        seed: currentSeed,
+        ...(sizeStr ? { size: parseInt(sizeStr, 10) } : {}),
+        ...(tags ? { tags } : {}),
+      })
+      break // success
+    } catch (err: any) {
+      lastError = err
+      if (attempt + 1 < MAX_RETRIES) {
+        console.warn(`[${type}] Attempt ${attempt + 1} failed (seed=${seed}): ${err.message}. Retrying with new seed...`)
+      }
+    }
+  }
+
+  if (!result) {
+    throw new Error(`[${type}] Failed after ${MAX_RETRIES} attempts. Last error: ${lastError?.message}`)
+  }
 
   // ── Export JSON ──────────────────────────────────────────────
   const json = await result.exportJson()
   const jsonPath = path.join(outDir, `${safeName}.json`)
   fs.writeFileSync(jsonPath, json, 'utf-8')
   console.log(`[${type}] Wrote ${jsonPath} (${(json.length / 1024).toFixed(0)} KB)`)
+
+  // ── Export SVG ──────────────────────────────────────────────
+  const svg = await result.exportSvg()
+  const svgPath = path.join(outDir, `${safeName}.svg`)
+  fs.writeFileSync(svgPath, svg, 'utf-8')
+  console.log(`[${type}] Wrote ${svgPath} (${(svg.length / 1024).toFixed(0)} KB)`)
 
   // ── Write theme ──────────────────────────────────────────────
   const layers = type === 'village' ? VILLAGE_THEME_LAYERS : CITY_THEME_LAYERS

@@ -24,6 +24,15 @@ export interface GeneratedRealm {
    * approximates icon placement via label text coordinates.
    */
   region: any;
+  /**
+   * Returns the EXACT rendered bounding box (same coordinate space as
+   * `region.islands[i].towns[j].cell.center`) of a town's icon sprite,
+   * captured live from the Haxe/OpenFL object graph during rendering. Pass
+   * one of the town model objects from `region.islands[i].towns[j]`.
+   * Returns null if the icon sprite wasn't captured (e.g. town mode isn't
+   * "icon", or the sprite has no renderable bounds).
+   */
+  getTownIconBounds(town: any): { x: number; y: number; width: number; height: number } | null;
   exportJson(): Promise<string>;
   exportSvg(): Promise<string>;
   exportPng(): Promise<Buffer>;

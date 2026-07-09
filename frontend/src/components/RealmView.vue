@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, nextTick } from 'vue'
+import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import * as d3 from 'd3'
 import type { TownMarker } from '../types'
 
@@ -15,6 +15,56 @@ const emit = defineEmits<{
 const containerRef = ref<HTMLDivElement | null>(null)
 const svgRef = ref<SVGSVGElement | null>(null)
 const tooltipRef = ref<HTMLDivElement | null>(null)
+
+// Debug flag: when true, the normally-invisible marker hit-circles are drawn
+// with a visible fill/stroke so their true position and size can be checked
+// against the underlying SVG icons. Toggle at runtime with the "M" key, or
+// flip DEFAULT_DEBUG_MARKERS below to have it on by default during dev.
+const DEFAULT_DEBUG_MARKERS = false
+const debugMarkers = ref(DEFAULT_DEBUG_MARKERS)
+
+function markerDebugColor(type: string) {
+  return type === 'city' ? '#e74c3c' : type === 'town' ? '#f39c12' : '#3498db'
+}
+
+function applyMarkerDebugStyle() {
+  const svgEl = svgRef.value
+  if (!svgEl) return
+  d3.select(svgEl)
+    .selectAll<SVGCircleElement, unknown>('.town-marker-hit')
+    .attr('fill', function () {
+      if (!debugMarkers.value) return 'transparent'
+      const type = (this as SVGCircleElement).dataset.type || 'village'
+      return markerDebugColor(type)
+    })
+    .attr('fill-opacity', debugMarkers.value ? 0.35 : 1)
+    .attr('stroke', debugMarkers.value ? '#fff' : null)
+    .attr('stroke-width', debugMarkers.value ? 1.5 : null)
+
+  // Precise crosshair at the exact anchor point (0,0 in the anchor's own
+  // counter-scaled space) — a fixed, tiny screen-constant size, independent
+  // of the (much larger, harder-to-eyeball) hit-circle radius. Use this, not
+  // the hit-circle's edge, to judge true marker-vs-icon alignment.
+  d3.select(svgEl)
+    .selectAll<SVGGElement, unknown>('.town-marker-crosshair')
+    .style('display', debugMarkers.value ? 'block' : 'none')
+}
+
+function handleDebugKeydown(event: KeyboardEvent) {
+  if (event.key.toLowerCase() === 'm') {
+    debugMarkers.value = !debugMarkers.value
+  }
+}
+
+watch(debugMarkers, applyMarkerDebugStyle)
+
+onMounted(() => {
+  window.addEventListener('keydown', handleDebugKeydown)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleDebugKeydown)
+})
 
 function markerHitRadius(type: string) {
   return type === 'city' ? 40 : type === 'town' ? 20 : 10
@@ -148,6 +198,7 @@ watch(() => props.svg, async () => {
       .attr('r', markerHitRadius(town.type))
       .attr('fill', 'transparent')
       .attr('class', 'town-marker-hit')
+      .attr('data-type', town.type)
       .attr('role', 'button')
       .attr('tabindex', '0')
       .attr('aria-label', `${town.name} (${town.type})`)
@@ -158,8 +209,24 @@ watch(() => props.svg, async () => {
       .on('mouseleave', handleMarkerMouseLeave)
       .on('click', () => handleMarkerClick(town))
       .on('keydown', (ev: KeyboardEvent) => handleMarkerKeydown(ev, town))
+
+    // Precise debug crosshair: fixed tiny screen-constant size (unaffected by
+    // markerHitRadius), hidden unless debugMarkers is on. Use this dot/cross
+    // to judge exact anchor alignment against the map's icon, rather than
+    // eyeballing the much larger hit-circle's edges.
+    const crosshair = anchor.append('g')
+      .attr('class', 'town-marker-crosshair')
+      .style('display', 'none')
+      .style('pointer-events', 'none')
+    crosshair.append('line').attr('x1', -6).attr('y1', 0).attr('x2', 6).attr('y2', 0)
+    crosshair.append('line').attr('x1', 0).attr('y1', -6).attr('x2', 0).attr('y2', 6)
+    crosshair.append('circle').attr('cx', 0).attr('cy', 0).attr('r', 2).attr('fill', '#00ff00')
+    crosshair.selectAll('line')
+      .attr('stroke', '#00ff00')
+      .attr('stroke-width', 1.5)
   }
 
+  applyMarkerDebugStyle()
   fitToViewport()
   window.addEventListener('resize', fitToViewport)
 }, { immediate: true })
@@ -169,6 +236,7 @@ watch(() => props.svg, async () => {
   <div ref="containerRef" id="map-container" class="map-container">
     <svg ref="svgRef" id="map" role="img" aria-label="Fantasy world map"></svg>
     <div ref="tooltipRef" id="tooltip" role="tooltip"></div>
+    <div v-if="debugMarkers" class="marker-debug-badge">Marker debug ON (press M to toggle)</div>
   </div>
 </template>
 
@@ -199,6 +267,19 @@ watch(() => props.svg, async () => {
 }
 .town-marker-hit {
   transition: filter 0.2s;
+}
+.marker-debug-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  background: rgba(231, 76, 60, 0.9);
+  color: #fff;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  z-index: 100;
+  pointer-events: none;
 }
 @media (prefers-reduced-motion: reduce) {
   .town-marker-hit { transition: none; }
