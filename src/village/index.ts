@@ -1,14 +1,54 @@
 /**
  * Village Generator public API
  */
+import * as fs from 'fs';
+import * as path from 'path';
 import { initEngine } from './engine';
 import { VillageOptions, GeneratedVillage, VillageGenerator } from './types';
 
 let initialized = false;
 
+// The village SVG exporter (view.exportSVG -> Ha.create(2*viewW2, 2*viewH2, ...))
+// always sizes its canvas to the village's natural world extent, with plain
+// `width`/`height` attributes and no `viewBox`. That size is baked into the model
+// (population/tags), not the export process, so we can't just "generate it bigger".
+// To render it at 2x without altering any content/geometry, we add a `viewBox`
+// matching the original pixel size and double the `width`/`height` attributes —
+// browsers/viewers then scale the identical vector content up losslessly.
+function doubleSvgDisplaySize(svg: string): string {
+  const match = svg.match(/<svg\b([^>]*)\bwidth="([\d.]+)"([^>]*)\bheight="([\d.]+)"([^>]*)>/);
+  if (!match) return svg;
+  const [full, before, widthStr, between, heightStr, after] = match;
+  if (/viewBox=/.test(full)) return svg; // already has one; leave as-is
+  const width = parseFloat(widthStr);
+  const height = parseFloat(heightStr);
+  const replaced =
+    `<svg${before}width="${width * 2}"${between}height="${height * 2}"${after} viewBox="0 0 ${width} ${height}">`;
+  return svg.replace(full, replaced);
+}
+
 export async function init(): Promise<void> {
   if (initialized) return;
   await initEngine();
+
+  // Initialize the Style palette. In the browser this happens at app startup via
+  // `Style.setPalette(Palette.fromAsset("default"))`, but that path relies on the
+  // async OpenFL asset manifest which never resolves headless. Without it, every
+  // Style color/font field is undefined and building a VillageView throws
+  // "Cannot read properties of undefined (reading 'color')".
+  const g = globalThis as any;
+  try {
+    const Style = g.VillageStyle;
+    const Palette = g.UtilsPalette;
+    const palettePath = path.resolve(__dirname, '..', '..', 'packages', 'village', 'assets', 'village_default.json');
+    if (Style?.setPalette && Palette?.fromJSON && fs.existsSync(palettePath)) {
+      const json = fs.readFileSync(palettePath, 'utf-8');
+      Style.setPalette(Palette.fromJSON(json), true);
+    }
+  } catch (e: any) {
+    console.error('[Village] Palette init failed:', e.message);
+  }
+
   initialized = true;
 }
 
@@ -51,14 +91,39 @@ export function createGenerator(): VillageGenerator {
       const Region = g.VillageRegion;
       if (!Region) throw new Error('VillageRegion not available');
       const village = new Region(bp);
-      
+
+      // Build a real VillageView so SVG export has geometry to serialize.
+      // Without this, Scene.inst.view is undefined and exportSvg() returns an
+      // empty <svg></svg>. The view constructor builds all render layers.
+      let view: any = null;
+      try {
+        const View = g.VillageView;
+        if (View) {
+          view = new View(village);
+          // The view defaults to size 0. In the browser the Scene sizes it to the
+          // stage; headless it stays 0, so layout() computes map scale 0 and the
+          // SVG export's `scale(1/scaleX)` becomes Infinity. Sizing the view to the
+          // village's natural pixel extent (2*viewW2 x 2*viewH2) makes the map scale
+          // exactly 1, producing clean SVG coordinates.
+          const w2 = Number(village.viewW2) || 0;
+          const h2 = Number(village.viewH2) || 0;
+          if (w2 > 0 && h2 > 0 && typeof view.setSize === 'function') {
+            view.setSize(2 * w2, 2 * h2);
+          } else if (typeof view.layout === 'function') {
+            view.layout();
+          }
+        }
+      } catch (e: any) {
+        console.error('[Village] View creation failed:', e.message);
+      }
+
       // Ensure scene inst exists for export
       const Scene = g.VillageScene;
       if (Scene && !Scene.inst) {
-        // Set inst manually without triggering full scene init
-        Scene.inst = { village };
+        Scene.inst = { village, view };
       } else if (Scene?.inst) {
         Scene.inst.village = village;
+        if (view) Scene.inst.view = view;
       }
 
       return {
@@ -69,36 +134,82 @@ export function createGenerator(): VillageGenerator {
         exportJson(): Promise<string> {
           return new Promise((resolve) => {
             const JSONExporter = g.VillageJSONExporter;
-            if (JSONExporter?.export) {
-              g.__captureCb = (data: string) => resolve(data);
-              setTimeout(() => JSONExporter.export(village), 100);
-            } else {
+            if (!JSONExporter?.export) {
               resolve('{}');
+              return;
             }
+            g.__captureCb = (data: string) => {
+              resolve(data);
+              g.__captureCb = null;
+            };
+            try {
+              JSONExporter.export(village);
+            } catch (_) {
+              g.__captureCb = null;
+              resolve('{}');
+              return;
+            }
+            // Fallback: if no Blob capture fires within 2s, resolve empty
+            setTimeout(() => {
+              if (g.__captureCb) {
+                g.__captureCb = null;
+                resolve('{}');
+              }
+            }, 2000);
           });
         },
 
         exportSvg(): Promise<string> {
           return new Promise((resolve) => {
             const view = g.VillageScene?.inst?.view;
-            if (view?.exportSVG) {
-              g.__captureCb = (data: string) => resolve(data);
-              setTimeout(() => view.exportSVG(), 100);
-            } else {
+            if (!view?.exportSVG) {
               resolve('<svg></svg>');
+              return;
             }
+            g.__captureCb = (data: string) => {
+              resolve(doubleSvgDisplaySize(data));
+              g.__captureCb = null;
+            };
+            try {
+              view.exportSVG();
+            } catch (_) {
+              g.__captureCb = null;
+              resolve('<svg></svg>');
+              return;
+            }
+            setTimeout(() => {
+              if (g.__captureCb) {
+                g.__captureCb = null;
+                resolve('<svg></svg>');
+              }
+            }, 5000);
           });
         },
 
         exportPng(): Promise<Buffer> {
           return new Promise((resolve) => {
             const view = g.VillageScene?.inst?.view;
-            if (view?.exportPNG) {
-              g.__captureCb = (data: string) => resolve(Buffer.from(data, 'base64'));
-              setTimeout(() => view.exportPNG(), 100);
-            } else {
+            if (!view?.exportPNG) {
               resolve(Buffer.alloc(0));
+              return;
             }
+            g.__captureCb = (data: string) => {
+              resolve(Buffer.from(data, 'base64'));
+              g.__captureCb = null;
+            };
+            try {
+              view.exportPNG();
+            } catch (_) {
+              g.__captureCb = null;
+              resolve(Buffer.alloc(0));
+              return;
+            }
+            setTimeout(() => {
+              if (g.__captureCb) {
+                g.__captureCb = null;
+                resolve(Buffer.alloc(0));
+              }
+            }, 5000);
           });
         },
       };

@@ -3,6 +3,7 @@
  */
 import { createEngine, GeneratorConfig, GeneratorRuntime } from '../shared/engine-base';
 import * as path from 'path';
+import * as fs from 'fs';
 
 const PACKAGES_DIR = path.resolve(__dirname, '..', '..', 'packages', 'village');
 
@@ -19,6 +20,26 @@ const CONFIG: GeneratorConfig = {
   mainCallPattern: 'S.main()',
   baseUrl: 'https://watabou.github.io/village-generator/',
   patchSource: (src: string): string => {
+    // Inline text assets (grammar + name lists). The village bundle loads these
+    // via `<assets>.getText("id")` at runtime through OpenFL's async manifest,
+    // which never resolves in headless mode → names come out as "((village))".
+    // Downloaded from https://watabou.github.io/village-generator/Assets/.
+    const assetsDir = path.join(PACKAGES_DIR, 'assets');
+    const assets: Record<string, string> = {
+      'grammar': 'grammar.json',
+      'givenMale': 'given_male.txt',
+      'givenFemale': 'given_female.txt',
+    };
+    for (const [id, filename] of Object.entries(assets)) {
+      const fpath = path.join(assetsDir, filename);
+      if (fs.existsSync(fpath)) {
+        const content = fs.readFileSync(fpath, 'utf-8');
+        // Receiver-agnostic: replace `<anyVar>.getText("id")` with the literal string.
+        const regex = new RegExp('\\w+\\.getText\\("' + id + '"\\)', 'g');
+        src = src.replace(regex, JSON.stringify(content));
+      }
+    }
+
     // Expose key Haxe classes to window via their registration patterns
     const classMap: Record<string, string> = {
       'com.watabou.village.JSONExporter': 'VillageJSONExporter',
@@ -28,6 +49,8 @@ const CONFIG: GeneratorConfig = {
       'com.watabou.village.model.Blueprint': 'VillageBlueprint',
       'com.watabou.village.model.Region': 'VillageRegion',
       'com.watabou.village.mapping.VillageView': 'VillageView',
+      'com.watabou.village.mapping.Style': 'VillageStyle',
+      'com.watabou.utils.Palette': 'UtilsPalette',
       'com.watabou.village.model.Params': 'VillageParams',
       'com.watabou.village.Main': 'VillageMain',
       'com.watabou.village.Names': 'VillageNames',
