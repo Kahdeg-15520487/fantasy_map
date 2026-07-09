@@ -138,21 +138,21 @@ export function createGenerator(): VillageGenerator {
               resolve('{}');
               return;
             }
-            g.__captureCb = (data: string) => {
+            const cid = g.__nextCaptureId();
+            g.__captureCbs[cid] = (data: string) => {
               resolve(data);
-              g.__captureCb = null;
+              delete g.__captureCbs[cid];
             };
             try {
               JSONExporter.export(village);
             } catch (_) {
-              g.__captureCb = null;
+              delete g.__captureCbs[cid];
               resolve('{}');
               return;
             }
-            // Fallback: if no Blob capture fires within 2s, resolve empty
             setTimeout(() => {
-              if (g.__captureCb) {
-                g.__captureCb = null;
+              if (g.__captureCbs[cid]) {
+                delete g.__captureCbs[cid];
                 resolve('{}');
               }
             }, 2000);
@@ -166,20 +166,21 @@ export function createGenerator(): VillageGenerator {
               resolve('<svg></svg>');
               return;
             }
-            g.__captureCb = (data: string) => {
+            const cid = g.__nextCaptureId();
+            g.__captureCbs[cid] = (data: string) => {
               resolve(doubleSvgDisplaySize(data));
-              g.__captureCb = null;
+              delete g.__captureCbs[cid];
             };
             try {
               view.exportSVG();
             } catch (_) {
-              g.__captureCb = null;
+              delete g.__captureCbs[cid];
               resolve('<svg></svg>');
               return;
             }
             setTimeout(() => {
-              if (g.__captureCb) {
-                g.__captureCb = null;
+              if (g.__captureCbs[cid]) {
+                delete g.__captureCbs[cid];
                 resolve('<svg></svg>');
               }
             }, 5000);
@@ -193,20 +194,21 @@ export function createGenerator(): VillageGenerator {
               resolve(Buffer.alloc(0));
               return;
             }
-            g.__captureCb = (data: string) => {
+            const cid = g.__nextCaptureId();
+            g.__captureCbs[cid] = (data: string) => {
               resolve(Buffer.from(data, 'base64'));
-              g.__captureCb = null;
+              delete g.__captureCbs[cid];
             };
             try {
               view.exportPNG();
             } catch (_) {
-              g.__captureCb = null;
+              delete g.__captureCbs[cid];
               resolve(Buffer.alloc(0));
               return;
             }
             setTimeout(() => {
-              if (g.__captureCb) {
-                g.__captureCb = null;
+              if (g.__captureCbs[cid]) {
+                delete g.__captureCbs[cid];
                 resolve(Buffer.alloc(0));
               }
             }, 5000);
