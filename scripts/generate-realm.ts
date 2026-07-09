@@ -239,6 +239,13 @@ async function main() {
     const result = await interactive()
     seed = result.seed
     tags = result.tags
+
+    // Print the equivalent CLI command for future non-interactive re-runs
+    const cliArgs: string[] = []
+    if (seed !== undefined) cliArgs.push(`--seed ${seed}`)
+    if (tags) cliArgs.push(`--tags "${tags}"`)
+    const cmd = `npm run generate -- ${cliArgs.join(' ')}`
+    console.log(`\n📋  Equivalent CLI command:\n    ${cmd}\n`)
   } else {
     console.log('[realm] No TTY detected — using random world.')
   }
