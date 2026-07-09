@@ -14,6 +14,7 @@ src/frontend/app.js.map
 
 # Generated frontend data (produced by scripts/generate-*.ts) — regenerate locally
 frontend/public/realm.json
+frontend/public/realm.svg
 frontend/public/towns.json
 frontend/public/city/
 frontend/public/village/
