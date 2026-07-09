@@ -86,6 +86,7 @@ export function createGenerator(): RealmGenerator {
 
       // Create Scene for SVG export (must be created before Fe.export needs the view)
       const Scene = g.RealmMapScene;
+
       let view: any = null;
       // Maps each live Town model object -> its rendered icon Sprite/Container
       // instance, captured by intercepting View.drawTown (see below). This
@@ -102,6 +103,19 @@ export function createGenerator(): RealmGenerator {
           new Scene();
           if (Scene.inst?.view) {
             view = Scene.inst.view;
+
+            // NOTE: MapView's constructor (already run by `new Scene()`
+            // above) unconditionally resets the static `K.showMatte` flag
+            // from persisted app state (`K.showMatte = State.get("matte",
+            // true)`), clobbering any pre-construction override — so setting
+            // the static flag beforehand has no effect. Instead, directly
+            // toggle the already-constructed matte sprite's visibility here.
+            // Default to false (matte hidden) since our exported maps are
+            // meant to be borderless by default.
+            if (view.matte?.set_visible) {
+              view.matte.set_visible(options.showMatte ?? false);
+            }
+
             if (typeof view.drawTown === 'function') {
               const origDrawTown = view.drawTown.bind(view);
               view.drawTown = function (townArg: any) {

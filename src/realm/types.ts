@@ -8,6 +8,15 @@ export interface RealmOptions {
   height?: number;
   name?: string;
   hexes?: number;
+  /**
+   * Whether to draw the decorative parchment "matte" border/frame around
+   * the map (com.watabou.perilous.mapping.MapView's matte sprite). Defaults
+   * to false (borderless) — this generator's default differs from the
+   * original app's default (true), since exported maps are meant to be
+   * borderless for the frontend by default. Set to true to include the
+   * parchment border/frame.
+   */
+  showMatte?: boolean;
 }
 
 export interface GeneratedRealm {

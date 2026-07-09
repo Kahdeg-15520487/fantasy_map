@@ -16,6 +16,8 @@
  *   --width <num>    SVG width (default 1800)
  *   --height <num>   SVG height (default 1800)
  *   --hexes <0|3>    0=flat, 3=3D tilted (default 0)
+ *   --matte          include the decorative parchment border/frame
+ *                    (omit for borderless output, which is the default)
  */
 import * as fs from 'fs'
 import * as path from 'path'
@@ -201,6 +203,11 @@ function parseCli() {
     width: args.width ? parseInt(args.width, 10) : undefined,
     height: args.height ? parseInt(args.height, 10) : undefined,
     hexes: args.hexes ? parseInt(args.hexes, 10) : undefined,
+    // Include the decorative parchment border/frame. Supports either
+    // `--matte` (boolean flag) or `--matte false`/`--matte true`. Defaults
+    // to undefined (unset) -> generate() applies its own default of false
+    // (borderless).
+    matte: args.matte !== undefined ? args.matte !== 'false' : undefined,
   }
 }
 
@@ -218,6 +225,7 @@ async function main() {
   let width: number | undefined
   let height: number | undefined
   let hexes: number | undefined
+  let matte: boolean | undefined
 
   if (hasArgs) {
     const cli = parseCli()
@@ -226,6 +234,7 @@ async function main() {
     width = cli.width
     height = cli.height
     hexes = cli.hexes
+    matte = cli.matte
   } else if (isTTY) {
     const result = await interactive()
     seed = result.seed
@@ -244,6 +253,7 @@ async function main() {
   const gen = createGenerator()
   const realm = await gen.generate({
     ...(seed !== undefined ? { seed } : {}),
+    ...(matte !== undefined ? { showMatte: matte } : {}),
     ...(tags ? { tags } : {}),
     ...(width ? { width } : {}),
     ...(height ? { height } : {}),

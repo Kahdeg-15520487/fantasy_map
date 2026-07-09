@@ -43,12 +43,14 @@ const CONFIG: GeneratorConfig = {
 
     // Expose classes using minified names before S.main()
     // m=Random, nb=URLState, Ce=Exporter (SystemExporter), Qd=Blueprint, ba=Region, 
-    // gb=MapScene, ug=Serializer, Fe=SvgExporter, Jb=Assets, Na=lime.utils.Assets
+    // gb=MapScene, ug=Serializer, Fe=SvgExporter, Jb=Assets, Na=lime.utils.Assets,
+    // K=MapView (holds display toggles: showMatte, showCompass, showClouds, etc.)
     src = src.replace('S.main()',
       ';window.UtilsRandom=m;window.URLState=nb;window.SystemExporter=Ce;' +
       'window.RealmBlueprint=Qd;window.RealmRegion=ba;window.RealmMapScene=gb;' +
       'window.RealmSerializer=ug;window.RealmSvgExporter=Fe;' +
       'window.RealmAssets=Jb;window.RealmLimeAssets=Na;' +
+      'window.RealmMapView=K;' +
       'window.RealmState=ea;S.main()');
     return src;
   },
